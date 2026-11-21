@@ -191,6 +191,13 @@ if(NOT WIN32)
         add_test(NAME test_conv_leia_posix_disabled
             COMMAND conv_leia_harness --provider $<TARGET_FILE:DisplayXR-LeiaConversion>
                     --enable 0 --expect disabled)
+        # describe_settings (the one options contract): every declared key is
+        # well-formed and the table is the one docs/conversion-provider.md lists.
+        add_test(NAME test_conv_leia_posix_settings
+            COMMAND conv_leia_harness --provider $<TARGET_FILE:DisplayXR-LeiaConversion>
+                    --list-settings)
+        set_tests_properties(test_conv_leia_posix_settings PROPERTIES
+            PASS_REGULAR_EXPRESSION "settings: 15 declared")
         # The function-table guard (neurd_table_has): a fake 0.5.0 libNeurD.so whose
         # table ends right before a PROT_NONE page. The provider must reach READY
         # without reading past the table and take convert_stream_cpu_ex ONLY when

@@ -13,7 +13,7 @@
  *                     [--input <image>] [--out <views.png>] [--frames N]
  *                     [--convergence <rel 0..1 | -1 = auto>] [--strength S]
  *                     [--eye-x X[,X...]] [--eye-y Y] [--eye-z Z] [--rect WxH | --no-rect]
- *                     [--depth <depth.f32>]
+ *                     [--depth <depth.f32>] [--list-settings]
  *
  * Viewpoints are passed the way the runtime passes them (ADR-048): two eyes
  * 64 mm apart around a midpoint (--eye-x, metres; a comma list sweeps it, --frames
@@ -21,6 +21,10 @@
  * default is a 15.6-inch 16:9 panel) or panel-relative without a rect (--no-rect).
  * --depth requests the aux depth of the same inference and writes the last one
  * as raw little-endian float32 (the target's extent is printed).
+ *
+ * --list-settings prints what the provider declares through describe_settings
+ * (key, type, default, help), checks each row is well-formed and exits; no
+ * probe, like `displayxr-cli conv options`.
  *
  * Settings reach the provider ONLY through the fake host's get_setting, as in
  * the runtime. --expect absent / disabled check the gate without NeurD and exit
@@ -120,6 +124,7 @@ main(int argc, char **argv)
 	float eye_y = 0.0f, eye_z = 0.6f, rect_w = 0.344f, rect_h = 0.194f;
 	bool use_rect = true;
 	const char *depth_out = NULL;
+	bool list_settings = false;
 	for (int i = 1; i < argc; i++) {
 		const char *a = argv[i];
 		const char *v = i + 1 < argc ? argv[i + 1] : NULL;
@@ -170,6 +175,8 @@ main(int argc, char **argv)
 			i++;
 		} else if (strcmp(a, "--no-rect") == 0) {
 			use_rect = false;
+		} else if (strcmp(a, "--list-settings") == 0) {
+			list_settings = true;
 		} else if (strcmp(a, "--depth") == 0 && v) {
 			depth_out = v, i++;
 		} else {
@@ -208,6 +215,41 @@ main(int argc, char **argv)
 	}
 	printf("provider: id=%s name=\"%s\" vendor=\"%s\" version=%s api=%u\n", iface->id, iface->display_name,
 	       iface->vendor, iface->version, pv);
+
+	if (list_settings) {
+#ifdef XRT_CONVERSION_PLUGIN_HAS_DESCRIBE_SETTINGS
+		if (!XRT_CONV_IFACE_HAS(iface, describe_settings)) {
+			fprintf(stderr, "the provider declares no settings (no describe_settings slot)\n");
+			return 1;
+		}
+		const struct xrt_component_setting_desc *d = NULL;
+		const uint32_t n = iface->describe_settings(&d);
+		bool ok = n > 0 && d != NULL && iface->describe_settings(NULL) == n;
+		for (uint32_t i = 0; ok && i < n; i++) {
+			if (d[i].key == NULL || d[i].key[0] == '\0' || d[i].type == NULL || d[i].default_value == NULL ||
+			    d[i].help == NULL) {
+				fprintf(stderr, "setting %u is malformed\n", i);
+				ok = false;
+				break;
+			}
+			for (uint32_t j = 0; j < i; j++) {
+				if (strcasecmp(d[i].key, d[j].key) == 0) {
+					fprintf(stderr, "setting %s is declared twice\n", d[i].key);
+					ok = false;
+				}
+			}
+			printf("  %-18s %-7s default=%-8s %s\n", d[i].key, d[i].type,
+			       d[i].default_value[0] ? d[i].default_value : "-", d[i].help);
+		}
+		if (ok) {
+			printf("settings: %u declared\n", n);
+		}
+		return ok ? 0 : 1;
+#else
+		fprintf(stderr, "built against runtime headers without describe_settings\n");
+		return 1;
+#endif
+	}
 
 	struct xrt_conv_provider_status ps;
 	memset(&ps, 0, sizeof(ps));

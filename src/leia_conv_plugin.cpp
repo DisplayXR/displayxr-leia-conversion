@@ -1384,6 +1384,57 @@ lc_destroy(struct xrt_conversion_plugin_instance *inst)
 	delete d;
 }
 
+#ifdef XRT_CONVERSION_PLUGIN_HAS_DESCRIBE_SETTINGS
+/*
+ * The one options contract (runtime ADR-054 decision 7): what this provider
+ * reads through host->get_setting, for `displayxr-cli conv options
+ * leia-conversion`. One row per key the module reads (read_knobs in
+ * leia_lift_neurd.cpp on Windows, in leia_conv_neurd_posix.cpp on Linux, plus
+ * NeurDPath in their discovery); the defaults are the modules' compiled ones.
+ * Keys are matched case-insensitively by the runtime's stores; they are
+ * declared in the spelling the module reads and the docs use
+ * (docs/conversion-provider.md, Settings). Keep the three in step.
+ */
+const struct xrt_component_setting_desc g_settings[] = {
+    {"Enable", XRT_COMPONENT_SETTING_TYPE_BOOL, "1", "0 turns the provider off (DISABLED)"},
+#ifdef LEIA_CONV_CPU_TRANSPORT
+    {"NeurDPath", XRT_COMPONENT_SETTING_TYPE_STRING, "",
+     "libNeurD.so or its directory; when set it is the only place looked at"},
+    {"Backend", XRT_COMPONENT_SETTING_TYPE_ENUM, "auto", "auto | openvino | cuda"},
+    {"Scale", XRT_COMPONENT_SETTING_TYPE_ENUM, "1080p", "none | 720p | 1080p | 1440p (NeurD input autoscaling)"},
+#else
+    {"NeurDPath", XRT_COMPONENT_SETTING_TYPE_STRING, "",
+     "absolute path of NeurD.dll; when set it is the only place looked at"},
+    {"Backend", XRT_COMPONENT_SETTING_TYPE_ENUM, "directml", "auto | directml | cuda | openvino"},
+    {"Scale", XRT_COMPONENT_SETTING_TYPE_ENUM, "720", "none | 720 | 1080 | 1440 (NeurD input autoscaling)"},
+    {"InteractiveMin", XRT_COMPONENT_SETTING_TYPE_STRING, "",
+     "x.y.z: oldest NeurD whose interactive convert is used (clamped up to 0.4.4); unset = the version the NeurD "
+     "header says introduced it"},
+#endif
+    {"MinVersion", XRT_COMPONENT_SETTING_TYPE_STRING, "0.4.6", "x.y.z: a NeurD older than this is refused"},
+    {"VideoModel", XRT_COMPONENT_SETTING_TYPE_ENUM, "fast", "fast | metric (the video streams' depth model)"},
+    {"ViewGain", XRT_COMPONENT_SETTING_TYPE_FLOAT, "1.0", "0..10: horizontal viewpoint gain"},
+    {"YGain", XRT_COMPONENT_SETTING_TYPE_FLOAT, "1.0", "0..10: vertical viewpoint gain"},
+    {"ZGain", XRT_COMPONENT_SETTING_TYPE_FLOAT, "0.5", "-2..2: depth-axis viewpoint gain"},
+    {"ConvGain", XRT_COMPONENT_SETTING_TYPE_FLOAT, "0.4", "-2..2: convergence gain"},
+    {"DepthGain", XRT_COMPONENT_SETTING_TYPE_FLOAT, "2.0", "0..10: depth (disparity) gain"},
+    {"Dilate", XRT_COMPONENT_SETTING_TYPE_INT, "2", "0..16: depth-edge dilation"},
+    {"OffAxis", XRT_COMPONENT_SETTING_TYPE_BOOL, "1", "0 = the dimensionless viewpoint pattern, 1 = the metric off-axis camera"},
+    {"ReliefDepthM", XRT_COMPONENT_SETTING_TYPE_FLOAT, "0.08", "0.001..5 m: relief depth of an off-axis convert"},
+    {"MetricReliefMaxM", XRT_COMPONENT_SETTING_TYPE_FLOAT, "0.3", "0.001..50 m: relief cap with the metric model"},
+};
+
+//! [C]; pure.
+uint32_t
+lc_describe_settings(const struct xrt_component_setting_desc **out_descs)
+{
+	if (out_descs != nullptr) {
+		*out_descs = g_settings;
+	}
+	return (uint32_t)(sizeof(g_settings) / sizeof(g_settings[0]));
+}
+#endif // XRT_CONVERSION_PLUGIN_HAS_DESCRIBE_SETTINGS
+
 struct xrt_conversion_plugin_iface g_iface = {
     (uint32_t)sizeof(struct xrt_conversion_plugin_iface),
     0,
@@ -1404,6 +1455,9 @@ struct xrt_conversion_plugin_iface g_iface = {
     lc_stream_destroy,
     lc_job_execute,
     lc_destroy,
+#ifdef XRT_CONVERSION_PLUGIN_HAS_DESCRIBE_SETTINGS
+    lc_describe_settings,
+#endif
 };
 
 } // namespace

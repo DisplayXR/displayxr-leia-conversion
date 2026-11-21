@@ -181,6 +181,40 @@ check_iface(struct xrt_conversion_plugin_iface *iface)
 	CHECK(XRT_CONV_IFACE_HAS(iface, stream_destroy));
 	CHECK(XRT_CONV_IFACE_HAS(iface, job_execute));
 	CHECK(XRT_CONV_IFACE_HAS(iface, destroy));
+#ifdef XRT_CONVERSION_PLUGIN_HAS_DESCRIBE_SETTINGS
+	// The one options contract: the declared settings are well-formed, unique,
+	// and include the keys the module reads (docs/conversion-provider.md).
+	CHECK(XRT_CONV_IFACE_HAS(iface, describe_settings));
+	{
+		const struct xrt_component_setting_desc *descs = nullptr;
+		const uint32_t n = iface->describe_settings(&descs);
+		CHECK(n == 16u);
+		CHECK(descs != nullptr);
+		CHECK(iface->describe_settings(nullptr) == n); // a NULL out pointer only counts
+		std::set<std::string> keys;
+		for (uint32_t i = 0; descs != nullptr && i < n; i++) {
+			CHECK(descs[i].key != nullptr && descs[i].key[0] != '\0');
+			CHECK(descs[i].type != nullptr && descs[i].default_value != nullptr && descs[i].help != nullptr);
+			if (descs[i].key == nullptr || descs[i].type == nullptr) {
+				continue;
+			}
+			for (const char *c = descs[i].key; *c != '\0'; c++) {
+				CHECK((*c >= 'A' && *c <= 'Z') || (*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') || *c == '_');
+			}
+			CHECK(descs[i].key[0] < '0' || descs[i].key[0] > '9');
+			const std::string t = descs[i].type;
+			CHECK(t == XRT_COMPONENT_SETTING_TYPE_BOOL || t == XRT_COMPONENT_SETTING_TYPE_INT ||
+			      t == XRT_COMPONENT_SETTING_TYPE_FLOAT || t == XRT_COMPONENT_SETTING_TYPE_STRING ||
+			      t == XRT_COMPONENT_SETTING_TYPE_ENUM);
+			CHECK(keys.insert(descs[i].key).second);
+		}
+		for (const char *k : {"Enable", "NeurDPath", "MinVersion", "Backend", "VideoModel", "InteractiveMin", "Scale",
+		                      "ViewGain", "YGain", "ZGain", "ConvGain", "DepthGain", "Dilate", "OffAxis",
+		                      "ReliefDepthM", "MetricReliefMaxM"}) {
+			CHECK(keys.count(k) == 1);
+		}
+	}
+#endif
 
 	// A runtime of another major: the provider's version, no iface.
 	struct xrt_conversion_plugin_iface *other = reinterpret_cast<struct xrt_conversion_plugin_iface *>(1);
