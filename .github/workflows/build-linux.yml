@@ -1,0 +1,293 @@
+# Copyright 2026, Leia Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Linux CI for the Leia conversion provider (DisplayXR-LeiaConversion.so, CPU
+# transport).
+#
+#   Pure        the pure layers and their tests. No runtime, no NeurD headers, no
+#               secret: the one job a fork PR can run in full.
+#   Build       the provider on Ubuntu 22.04 / 24.04 / 26.04 containers against
+#               the pinned runtime and the private NeurD headers; every ctest
+#               (ABSENT / DISABLED gates, describe_settings, the NeurD
+#               function-table guard), single export, no unresolved symbol, no
+#               NeurD link dependency. The 22.04 leg compiles against the last
+#               headers WITHOUT NeurD_convert_stream_cpu_ex, so the fixed-pair
+#               fallback build stays compiled.
+#   Deb         the shipped package, built on the OLDEST supported release
+#               (ubuntu:22.04): a package's glibc floor is its build host's.
+#   DebInstall  installs the package into pristine 22.04 / 24.04 / 26.04
+#               containers next to the released runtime .deb.
+#   Linux Packaging  aggregator over Deb + DebInstall: one stable context to
+#               require (a matrix leg's name moves when the release list does).
+#
+# The NeurD headers are Leia-private: fetched from LeiaInc/media_sdk with the
+# LEIALOFT_GITHUB_TOKEN secret into a gitignored directory, never committed and
+# never uploaded as an artifact. Without the secret (a fork PR) Build and Deb
+# skip with a warning; a release (workflow_call with release: true) fails
+# instead.
+#
+# Pins have ONE source each and are read at run time, never restated here:
+# the runtime ref from CMakeLists.txt (DXR_RUNTIME_GIT_TAG), the NeurD header
+# refs from scripts/neurd-pins.env.
+
+name: Build Linux
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        description: "Called by the release workflow: a missing NeurD header fetch is an error"
+        type: boolean
+        default: false
+    secrets:
+      LEIALOFT_GITHUB_TOKEN:
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-linux-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  Pure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Pure layers + tests
+        run: ./scripts/build-linux.sh --pure
+      - name: Script lint
+        run: shellcheck --severity=warning scripts/*.sh
+      - name: Catalog manifest is valid JSON
+        run: python3 -c 'import json,sys; json.load(open(sys.argv[1]))' catalog/leia-conversion.json
+
+  Build:
+    runs-on: ubuntu-latest
+    container: ubuntu:${{ matrix.ubuntu }}
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['22.04', '24.04', '26.04']
+    steps:
+      # Bare container, running as root. git + ca-certificates must land BEFORE
+      # actions/checkout, or it falls back to the tarball API and `git describe`
+      # (the provider's iface .version) degrades.
+      - name: Install dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            git ca-certificates jq curl \
+            build-essential cmake ninja-build pkg-config python3 \
+            libvulkan-dev glslang-tools \
+            libeigen3-dev libcjson-dev libudev-dev \
+            libxcb1-dev libxcb-randr0-dev libxcb-shape0-dev libx11-dev libx11-xcb-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxrandr-dev libxxf86vm-dev libxcb-glx0-dev \
+            libdbus-1-dev
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for git describe
+
+      - name: Resolve pins
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          tag=$(sed -nE 's/^set\(DXR_RUNTIME_GIT_TAG[[:space:]]+"([^"]+)".*/\1/p' CMakeLists.txt)
+          [ -n "$tag" ] || { echo "::error::DXR_RUNTIME_GIT_TAG not found in CMakeLists.txt"; exit 1; }
+          echo "RUNTIME_REF=$tag" >> "$GITHUB_ENV"
+          grep -E '^[A-Z_]+=' scripts/neurd-pins.env >> "$GITHUB_ENV"
+          . ./scripts/neurd-pins.env
+          ref="$NEURD_SDK_REF_LINUX"
+          # 22.04 = the pre-cpu_ex fallback build.
+          [ "${{ matrix.ubuntu }}" != "22.04" ] || ref="$NEURD_SDK_REF_LINUX_FALLBACK"
+          echo "NEURD_SDK_REF=$ref" >> "$GITHUB_ENV"
+          echo "runtime $tag, NeurD headers $NEURD_SDK_REPO@$ref"
+
+      - name: Checkout runtime @ ${{ env.RUNTIME_REF }}
+        uses: actions/checkout@v4
+        with:
+          repository: DisplayXR/displayxr-runtime
+          ref: ${{ env.RUNTIME_REF }}
+          path: displayxr-runtime
+          fetch-depth: 1
+
+      - name: Fetch NeurD headers
+        id: neurd
+        env:
+          GH_TOKEN: ${{ secrets.LEIALOFT_GITHUB_TOKEN }}
+        run: |
+          if [ -n "${GH_TOKEN:-}" ] &&
+             ./scripts/fetch-neurd-headers.sh "$NEURD_SDK_REPO" "$NEURD_SDK_REF" "NeurD-SDK-$NEURD_SDK_REF"; then
+            echo "have=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ inputs.release }}" = "true" ]; then
+            echo "::error::NeurD headers unavailable — a release cannot be built without them."
+            exit 1
+          fi
+          echo "::warning::NeurD headers unavailable (no LEIALOFT_GITHUB_TOKEN, e.g. a fork PR) — the provider is NOT built; only the Pure job covers this change."
+          echo "have=no" >> "$GITHUB_OUTPUT"
+
+      - name: Build + test the provider
+        if: steps.neurd.outputs.have == 'yes'
+        env:
+          DXR_RUNTIME_SOURCE_DIR: ${{ github.workspace }}/displayxr-runtime
+        run: |
+          export NEURD_SDK_ROOT="$GITHUB_WORKSPACE/NeurD-SDK-$NEURD_SDK_REF"
+          ./scripts/build-linux.sh
+
+      # The function-table guard only exists with cpu_ex headers; make sure the
+      # legs that have them really ran it (a silently empty test list is green).
+      - name: Assert the NeurD table-guard tests ran (cpu_ex headers)
+        if: steps.neurd.outputs.have == 'yes' && matrix.ubuntu != '22.04'
+        run: |
+          n=$(ctest --test-dir build/src -N | grep -c 'test_conv_leia_posix_table_' || true)
+          echo "table-guard tests: $n"
+          [ "$n" = 4 ] || { echo "::error::expected 4 NeurD table-guard tests, found $n"; exit 1; }
+
+  Deb:
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    outputs:
+      have: ${{ steps.neurd.outputs.have }}
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            git ca-certificates jq curl \
+            build-essential cmake ninja-build pkg-config python3 \
+            libvulkan-dev glslang-tools \
+            libeigen3-dev libcjson-dev libudev-dev \
+            libxcb1-dev libxcb-randr0-dev libxcb-shape0-dev libx11-dev libx11-xcb-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libxrandr-dev libxxf86vm-dev libxcb-glx0-dev \
+            libdbus-1-dev \
+            dpkg-dev patchelf fakeroot binutils
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve pins
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          tag=$(sed -nE 's/^set\(DXR_RUNTIME_GIT_TAG[[:space:]]+"([^"]+)".*/\1/p' CMakeLists.txt)
+          [ -n "$tag" ] || { echo "::error::DXR_RUNTIME_GIT_TAG not found in CMakeLists.txt"; exit 1; }
+          echo "RUNTIME_REF=$tag" >> "$GITHUB_ENV"
+          grep -E '^[A-Z_]+=' scripts/neurd-pins.env >> "$GITHUB_ENV"
+
+      - name: Checkout runtime @ ${{ env.RUNTIME_REF }}
+        uses: actions/checkout@v4
+        with:
+          repository: DisplayXR/displayxr-runtime
+          ref: ${{ env.RUNTIME_REF }}
+          path: displayxr-runtime
+          fetch-depth: 1
+
+      - name: Fetch NeurD headers
+        id: neurd
+        env:
+          GH_TOKEN: ${{ secrets.LEIALOFT_GITHUB_TOKEN }}
+        run: |
+          if [ -n "${GH_TOKEN:-}" ] &&
+             ./scripts/fetch-neurd-headers.sh "$NEURD_SDK_REPO" "$NEURD_SDK_REF_LINUX" "NeurD-SDK-$NEURD_SDK_REF_LINUX"; then
+            echo "have=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ inputs.release }}" = "true" ]; then
+            echo "::error::NeurD headers unavailable — a release cannot be packaged without them."
+            exit 1
+          fi
+          echo "::warning::NeurD headers unavailable — no .deb is built for this change."
+          echo "have=no" >> "$GITHUB_OUTPUT"
+
+      - name: Build the .deb (glibc floor = Ubuntu 22.04)
+        if: steps.neurd.outputs.have == 'yes'
+        env:
+          DXR_RUNTIME_SOURCE_DIR: ${{ github.workspace }}/displayxr-runtime
+          DXR_DEB_MAX_GLIBC: "2.35"
+        run: |
+          export NEURD_SDK_ROOT="$GITHUB_WORKSPACE/NeurD-SDK-$NEURD_SDK_REF_LINUX"
+          ./scripts/package_deb.sh
+          ls -lh dist/displayxr-leia-conversion_*.deb
+
+      # Only the package leaves the job: never the NeurD headers.
+      - name: Upload .deb artifact
+        if: steps.neurd.outputs.have == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: displayxr-leia-conversion-deb
+          path: dist/displayxr-leia-conversion_*.deb
+          if-no-files-found: error
+
+  DebInstall:
+    name: DebInstall (Ubuntu ${{ matrix.release }})
+    needs: Deb
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        release: ["22.04", "24.04", "26.04"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No .deb to verify
+        if: needs.Deb.outputs.have != 'yes'
+        run: echo "The Deb job built nothing (no NeurD headers) — nothing to verify."
+
+      - name: Download the .deb
+        if: needs.Deb.outputs.have == 'yes'
+        uses: actions/download-artifact@v4
+        with:
+          name: displayxr-leia-conversion-deb
+          path: deb
+
+      - name: Fetch the latest released runtime .deb
+        if: needs.Deb.outputs.have == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo DisplayXR/displayxr-runtime \
+            --pattern 'displayxr-runtime_*_amd64.deb' --dir runtime-deb
+          ls -lh runtime-deb
+
+      - name: apt install + ldd -r + discovery in clean ubuntu:${{ matrix.release }}
+        if: needs.Deb.outputs.have == 'yes'
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w "ubuntu:${{ matrix.release }}" \
+            ./scripts/verify_deb_install_linux.sh deb/*.deb runtime-deb/*.deb
+
+  LinuxPackaging:
+    name: Linux Packaging
+    needs: [Pure, Build, Deb, DebInstall]
+    # always(): a SKIPPED aggregator counts as green for a ruleset and would stop
+    # gating exactly when a leg went red.
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert every leg succeeded
+        env:
+          RESULT_PURE: ${{ needs.Pure.result }}
+          RESULT_BUILD: ${{ needs.Build.result }}
+          RESULT_DEB: ${{ needs.Deb.result }}
+          RESULT_DEBINSTALL: ${{ needs.DebInstall.result }}
+        run: |
+          set -u
+          rc=0
+          for leg in PURE BUILD DEB DEBINSTALL; do
+            var="RESULT_${leg}"
+            result="${!var}"
+            printf '%-12s %s\n' "$leg" "${result:-<missing>}"
+            [ "$result" = "success" ] || rc=1
+          done
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::Linux lane is not green — see the leg results above."
+            exit 1
+          fi
+          echo "All Linux legs succeeded."

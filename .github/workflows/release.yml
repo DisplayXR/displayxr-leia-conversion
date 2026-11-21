@@ -1,0 +1,107 @@
+# Copyright 2026, Leia Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Tag-triggered release: vX.Y.Z -> the Windows NSIS installer and the Linux .deb
+# attached to the GitHub Release, then a `versions-bump` dispatch to
+# displayxr-runtime (field `leia_conversion`).
+#
+# The two build workflows are reused as they are (same steps, same asserts, same
+# tests, the DebInstall matrix) with `release: true`, so a missing NeurD header
+# fetch fails the release instead of skipping. Builds here are unsigned; signed
+# releases come from the signing provider (the runtime's
+# docs/specs/runtime/release-signing.md), which replaces the unsigned assets.
+#
+# NOT published: anything of NeurD's. The release carries this repo's own
+# provider binary only; the NeurD runtime is an external prerequisite.
+
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      release: true
+    secrets: inherit
+
+  linux:
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      release: true
+    secrets: inherit
+
+  release:
+    needs: [windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the release upload; nothing else in this workflow writes
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: DisplayXR-LeiaConversion-windows
+          path: win
+      - uses: actions/download-artifact@v4
+        with:
+          name: displayxr-leia-conversion-deb
+          path: deb
+      - name: Collect the release assets
+        run: |
+          mkdir assets
+          cp win/DisplayXRLeiaConversionSetup-*.exe assets/
+          cp deb/displayxr-leia-conversion_*.deb assets/
+          ls -l assets
+          # The tag IS the version: refuse a release whose assets say otherwise.
+          ver="${GITHUB_REF_NAME#v}"
+          [ -f "assets/DisplayXRLeiaConversionSetup-$ver.exe" ] ||
+            { echo "::error::no DisplayXRLeiaConversionSetup-$ver.exe among the assets"; exit 1; }
+          ls assets/displayxr-leia-conversion_"$ver"_*.deb >/dev/null ||
+            { echo "::error::no displayxr-leia-conversion_${ver}_<arch>.deb among the assets"; exit 1; }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+  # Tell displayxr-runtime to bump versions.json[leia_conversion] to this tag,
+  # the way the Leia SR plug-in does for `leia_plugin`. "Released = tested": a
+  # tag here means this build is meant for the dev orchestrator and the bundle.
+  # Needs `release`, so the runtime side always finds the assets. The App token
+  # is the org's publish bot; GITHUB_TOKEN (read-only here) is not used.
+  #
+  # RUNTIME-SIDE PREREQUISITE (not in this repo): versions.json needs a
+  # `leia_conversion` field and the orchestrator its component rows before the
+  # first dispatch does anything useful; see docs/installer.md § Releasing.
+  dispatch-versions-bump:
+    if: github.repository_owner == 'DisplayXR'
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint dispatch token
+        id: dispatch-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.DISPLAYXR_APP_ID }}
+          private-key: ${{ secrets.DISPLAYXR_APP_PRIVATE_KEY }}
+          owner: DisplayXR
+          repositories: displayxr-runtime
+
+      - name: Dispatch versions.json bump
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ steps.dispatch-token.outputs.token }}
+          repository: DisplayXR/displayxr-runtime
+          event-type: versions-bump
+          client-payload: |
+            {
+              "field":       "leia_conversion",
+              "tag":         "${{ github.ref_name }}",
+              "source_repo": "${{ github.repository }}"
+            }

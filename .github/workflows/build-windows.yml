@@ -1,0 +1,224 @@
+# Copyright 2026, Leia Inc.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Windows CI for the Leia conversion provider (DisplayXR-LeiaConversion.dll,
+# D3D11 transport): build against the pinned runtime and the private NeurD
+# headers, assert the DLL's export and import discipline, run the provider test
+# against fake NeurD modules, and build the NSIS installer.
+#
+# The NeurD headers are Leia-private: fetched from LeiaInc/media_sdk with the
+# LEIALOFT_GITHUB_TOKEN secret into a gitignored directory, never committed and
+# never uploaded. Without the secret (a fork PR) the job stops after the fetch
+# with a warning; a release (workflow_call with release: true) fails instead.
+#
+# Pins have ONE source each and are read at run time: the runtime ref from
+# CMakeLists.txt (DXR_RUNTIME_GIT_TAG), the NeurD header ref from
+# scripts/neurd-pins.env (NEURD_SDK_REF_WINDOWS).
+
+name: Build Windows
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release:
+        description: "Called by the release workflow: a missing NeurD header fetch is an error"
+        type: boolean
+        default: false
+    secrets:
+      LEIALOFT_GITHUB_TOKEN:
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  Build:
+    runs-on: windows-2022
+    outputs:
+      have: ${{ steps.neurd.outputs.have }}
+    env:
+      # The runtime's vcpkg.json needs the pthreads overlay port (same copy as
+      # the Leia SR plug-in's).
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/cmake/vcpkg-overlay-ports
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, for the VERSION sync and git describe
+
+      - name: Resolve pins
+        shell: pwsh
+        run: |
+          $line = Select-String -Path 'CMakeLists.txt' -Pattern 'set\(DXR_RUNTIME_GIT_TAG\s+"([^"]+)"' | Select-Object -First 1
+          if (-not $line) { throw "DXR_RUNTIME_GIT_TAG not found in CMakeLists.txt" }
+          $tag = $line.Matches[0].Groups[1].Value
+          "RUNTIME_REF=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $pins = @{}
+          Get-Content scripts/neurd-pins.env | Where-Object { $_ -match '^([A-Z_]+)=(.*)$' } | ForEach-Object {
+            $pins[$Matches[1]] = $Matches[2]
+          }
+          foreach ($k in @('NEURD_SDK_REPO', 'NEURD_SDK_REF_WINDOWS')) {
+            if (-not $pins[$k]) { throw "$k not found in scripts/neurd-pins.env" }
+            "$k=$($pins[$k])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          }
+          Write-Host "runtime $tag, NeurD headers $($pins['NEURD_SDK_REPO'])@$($pins['NEURD_SDK_REF_WINDOWS'])"
+
+      - name: Fetch NeurD headers
+        id: neurd
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.LEIALOFT_GITHUB_TOKEN }}
+        run: |
+          $ok = $false
+          if ($env:GH_TOKEN) {
+            ./scripts/fetch-neurd-headers.ps1 -Repo $env:NEURD_SDK_REPO -Ref $env:NEURD_SDK_REF_WINDOWS -Dest "NeurD-SDK-$env:NEURD_SDK_REF_WINDOWS"
+            $ok = ($LASTEXITCODE -eq 0)
+          }
+          if ($ok) {
+            "have=yes" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+          if ('${{ inputs.release }}' -eq 'true') {
+            Write-Host "::error::NeurD headers unavailable -- a release cannot be built without them."
+            exit 1
+          }
+          Write-Host "::warning::NeurD headers unavailable (no LEIALOFT_GITHUB_TOKEN, e.g. a fork PR) -- the provider is NOT built."
+          "have=no" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          exit 0
+
+      - name: Checkout displayxr-runtime (pinned)
+        if: steps.neurd.outputs.have == 'yes'
+        uses: actions/checkout@v4
+        with:
+          repository: DisplayXR/displayxr-runtime
+          ref: ${{ env.RUNTIME_REF }}
+          path: displayxr-runtime
+          fetch-depth: 1
+
+      - name: Setup vcpkg
+        if: steps.neurd.outputs.have == 'yes'
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+          vcpkgGitCommitId: '5d90b0d5d0317336e65662f2bf0d671b0902c632'
+          vcpkgJsonGlob: 'displayxr-runtime/vcpkg.json'
+
+      - name: Install Vulkan SDK
+        if: steps.neurd.outputs.have == 'yes'
+        uses: humbletim/install-vulkan-sdk@v1.2
+        with:
+          version: 1.4.309.0
+          cache: true
+
+      - if: steps.neurd.outputs.have == 'yes'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install OpenXR loader
+        if: steps.neurd.outputs.have == 'yes'
+        shell: pwsh
+        run: |
+          $openxrVersion = "1.1.51"
+          $openxrUrl = "https://github.com/KhronosGroup/OpenXR-SDK-Source/releases/download/release-$openxrVersion/openxr_loader_windows-$openxrVersion.zip"
+          Invoke-WebRequest -Uri $openxrUrl -OutFile openxr_loader.zip
+          Expand-Archive -Path openxr_loader.zip -DestinationPath openxr_sdk -Force
+
+      # project(... VERSION x.y.z) feeds the DLL's VERSIONINFO, the installer's
+      # file name and the registration row's Version. Take it from the latest
+      # vX.Y.Z tag so a tag build is exactly that version, and capture the git
+      # identity BEFORE patching (the tree is then legitimately modified).
+      - name: Sync CMake VERSION from latest vX.Y.Z tag
+        if: steps.neurd.outputs.have == 'yes'
+        shell: pwsh
+        run: |
+          $desc = (git describe --tags --always --dirty --match 'v[0-9]*' 2>$null)
+          if ($desc) { "DXR_PLUGIN_GIT_DESC=$desc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+          $tag = (git describe --tags --abbrev=0 --match 'v[0-9]*' 2>$null)
+          if (-not $tag -or $tag -notmatch '^v(\d+\.\d+\.\d+)$') {
+            Write-Host "No vX.Y.Z tag reachable -- leaving CMakeLists.txt unchanged"
+            exit 0
+          }
+          $ver = $Matches[1]
+          Write-Host "Patching CMakeLists.txt VERSION to $ver (from tag $tag)"
+          $out = Get-Content CMakeLists.txt | ForEach-Object {
+            if ($_ -match '^(\s*)VERSION\s+\d+\.\d+\.\d+(\s*)$') { "$($Matches[1])VERSION $ver$($Matches[2])" } else { $_ }
+          }
+          Set-Content -Path CMakeLists.txt -Value $out -Encoding UTF8
+          exit 0
+
+      - name: Generate
+        if: steps.neurd.outputs.have == 'yes'
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Ninja Multi-Config" `
+            -DDXR_RUNTIME_SOURCE_DIR="${{ github.workspace }}/displayxr-runtime" `
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_MANIFEST_DIR="${{ github.workspace }}/displayxr-runtime" `
+            -DX_VCPKG_APPLOCAL_DEPS_INSTALL=ON `
+            -DCMAKE_INSTALL_PREFIX=_package `
+            -DOpenXR_ROOT="${{ github.workspace }}/openxr_sdk" `
+            -DDXR_CONV_REQUIRE_PROVIDER=ON `
+            -DNEURD_SDK_ROOT="${{ github.workspace }}/NeurD-SDK-$env:NEURD_SDK_REF_WINDOWS" `
+            -DBUILD_NUM="${{ github.run_number }}"
+
+      - name: Build
+        if: steps.neurd.outputs.have == 'yes'
+        run: cmake --build build --config Release --target install
+
+      # Exactly one export (xrtConversionPluginNegotiate), no SR SDK or display
+      # plug-in import, and no static import of the NeurD module: it is loaded
+      # by absolute path, or the DLL would fail to load on a box without it.
+      - name: Assert provider exports + imports
+        if: steps.neurd.outputs.have == 'yes'
+        shell: pwsh
+        run: |
+          $dll = "_package/bin/plugins/DisplayXR-LeiaConversion.dll"
+          if (-not (Test-Path $dll)) {
+            Write-Host "::error::$dll missing -- the build did not produce the provider."
+            exit 1
+          }
+          $names = @(& dumpbin /exports $dll 2>&1 | ForEach-Object {
+            if ($_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)') { $Matches[1] }
+          })
+          if ($names.Count -ne 1 -or $names[0] -ne 'xrtConversionPluginNegotiate') {
+            Write-Host "::error::$dll exports [$($names -join ', ')] -- expected exactly xrtConversionPluginNegotiate."
+            exit 1
+          }
+          Write-Host "PASS: exactly one export, xrtConversionPluginNegotiate."
+          $imports = & dumpbin /imports $dll 2>&1 | Out-String
+          foreach ($bad in @('SimulatedReality', 'LeiaSR_runtime', 'DisplayXR-LeiaSR', 'NeurD.dll')) {
+            if ($imports -match [regex]::Escape($bad)) {
+              Write-Host "::error::$dll statically imports $bad -- the provider must load without it."
+              exit 1
+            }
+          }
+          Write-Host "PASS: no SR SDK, display plug-in or conversion-module import."
+
+      - name: Provider tests
+        if: steps.neurd.outputs.have == 'yes'
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --target test_conv_leia_provider test_conv_leia_policy test_conv_leia_cpu test_lift_viewpoint test_lift_depth
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          ctest --test-dir build/src -C Release --output-on-failure
+
+      - name: Build installer
+        if: steps.neurd.outputs.have == 'yes'
+        run: cmake --build build --config Release --target installer
+
+      # Only the DLL and the installer leave the job: never the NeurD headers.
+      - name: Upload artifacts
+        if: steps.neurd.outputs.have == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DisplayXR-LeiaConversion-windows
+          path: |
+            _package/bin/plugins/DisplayXR-LeiaConversion.dll
+            _package/DisplayXRLeiaConversionSetup-*.exe
+          if-no-files-found: error
