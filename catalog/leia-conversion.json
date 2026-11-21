@@ -1,0 +1,45 @@
+{
+ "_draft": "DRAFT, not published and not read by any client. It sketches the entry this component needs in the DisplayXR component catalog (displayxr-runtime docs/specs/runtime/component-catalog.md, schema 1), the signed index `dxr-get` reads. Real entries are DERIVED by the runtime's scripts/gen_catalog.py from versions.json and the signed release assets; nothing is hand-written into the catalog. Keys starting with '_' are notes for reviewers and are not part of the schema. Every '<...>' is a placeholder the generator fills from a real release.",
+ "_what_is_missing_today": "versions.json has no `leia_conversion` field and gen_catalog.py emits no such component, so `dxr-get install leia_conversion` finds nothing to fetch. The Leia SR plug-in installer already calls it (and falls back to a pointer); it starts working when this entry is published.",
+ "components": {
+  "leia_conversion": {
+   "recommended": "<X.Y.Z, the versions.json pin>",
+   "kind": "conversion_provider",
+   "requires": { "runtime": ">=2.41.0" },
+   "windows": {
+    "version": "<X.Y.Z>",
+    "file": "DisplayXRLeiaConversionSetup-<X.Y.Z>.exe",
+    "size": 0,
+    "sha256": "<64 lowercase hex>",
+    "signer": "<leaf signer CN of the release signature, one of the catalog's signers.windows>",
+    "urls": [
+     "https://github.com/DisplayXR/displayxr-leia-conversion/releases/download/v<X.Y.Z>/DisplayXRLeiaConversionSetup-<X.Y.Z>.exe",
+     "https://api.github.com/repos/DisplayXR/displayxr-leia-conversion/releases/assets/<id>"
+    ],
+    "args": ["/S"],
+    "registry_version": "HKLM\\Software\\DisplayXR\\Plugins\\LeiaConversion\\Version"
+   },
+   "_linux": {
+    "_note": "Schema 1 has no Linux block (dxr-get is Windows-only). For reference, what a POSIX client would need.",
+    "file": "displayxr-leia-conversion_<X.Y.Z>_amd64.deb",
+    "installed": "dpkg package displayxr-leia-conversion",
+    "conflicts": "Breaks / Replaces displayxr-leia-sr older than the first release without the provider: on a box that has one, upgrade displayxr-leia-sr in the same transaction."
+   },
+   "_registered_as": "ConversionProviders\\leia-conversion (Windows registry, 64-bit view); 050-leia-conversion-conversion-provider.json (Linux manifest). ProbeOrder 50, conversion provider API 1.",
+   "_external_prerequisite": {
+    "name": "NeurD runtime (Leia)",
+    "_note": "NOT shipped, downloaded or installed by this component or by DisplayXR. Schema 1 cannot express an external requirement; a client should detect it and report met / unmet, never install it.",
+    "min_version": "0.4.6",
+    "_min_version_note": "0.4.6 is the provider's default floor (the MinVersion setting). Linux look-around (views that follow the viewer) needs a NeurD that exports NeurD_get_table_size, first released as 0.5.0; an older one still converts, with a fixed pair.",
+    "detect": {
+     "windows": "PATH, then NEURD_PATH, then HKLM\\SOFTWARE\\LeiaInc\\NeurD (default value = its directory, `Version`); or only where the NeurDPath setting says",
+     "linux": "/opt/immersity/neurd-runtime (libNeurD.so, VERSION.txt), then NEURD_PATH, LD_LIBRARY_PATH, ${XDG_DATA_HOME:-~/.local/share}/LeiaInc/NeurD-Runtime; or only where the NeurDPath setting says",
+     "authoritative": "`displayxr-cli conv status` on the box: ABSENT = not found, FAILED(VERSION) = older than the floor"
+    },
+    "licence": "handled by the vendor, inside NeurD. This component's own code is Apache-2.0.",
+    "network": "needed at NeurD's first activation (its licence check); the provider reports FAILED(NETWORK), retried, until it succeeds, and UNLICENSED when it is refused",
+    "info_url": "<https URL of the NeurD runtime's own download / install page>"
+   }
+  }
+ }
+}

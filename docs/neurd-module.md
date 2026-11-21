@@ -1,9 +1,35 @@
-# 2D→3D lift via NeurD (Windows, D3D11)
+# The NeurD module (Windows, D3D11)
+
+> **Read this first.** This document was written when the NeurD module also sat behind the Leia
+> D3D11 display processor's `lift_*` slots, and most of its text still describes that hosting.
+> **That hosting is gone**: the display processor no longer carries the module or the slots, and
+> the only caller of `leia_lift_neurd.{h,cpp}` is the conversion provider in this repo
+> ([conversion-provider.md](conversion-provider.md)). Read it for what has not changed — NeurD
+> discovery and the version floor, licensing / activation, the backend choice, the device bridge,
+> the viewpoint and depth mappings, the convert path, the knob meanings and ranges — and read
+> these parts as history:
+>
+> | In the text below | Today |
+> |---|---|
+> | "the D3D11 DP", the `lift_get_caps` / `lift_stream_create` / `lift_convert` / `lift_get_depth` slots, the lift-only DP (`create_dp_d3d11_lift`), the runtime's `dp-lift` adapter | the provider's `xrt_conversion_plugin_iface` slots (`describe_cap`, `warm`, `stream_create`, `stream_convert`, …) |
+> | the background activation thread, the 30 s re-probe | **manual activation**: `warm` loads and initialises NeurD on the runtime's thread (`leia_lift_neurd_set_manual_activation`) |
+> | the `DXR_LEIA_LIFT*` environment variables and `HKLM\SOFTWARE\DisplayXR\Leia\Lift`, `scripts\set-lift-knobs.bat` | the provider's settings, read only through `host->get_setting` (`leia_lift_neurd_set_setting_reader`): `displayxr-cli conv set leia-conversion <Key> <value>`, same key names (the registry value names in § Knobs), plus `Enable` and `NeurDPath` |
+> | tracked eyes from the DP's own SR tracker ("Legacy contract") | never: the provider has no tracker and no SR session; viewpoints arrive on every call from the runtime |
+> | `src/…`, `displayxr-cli lift caps` | `src/…` in this repo, `displayxr-cli conv list` / `conv status` / `conv options leia-conversion` |
+> | § Building | [conversion-provider.md § Building and testing](conversion-provider.md#building-and-testing) |
+>
+> The module source still contains the display-processor hosting (the activation thread, the
+> environment / registry knob reader) behind the two setters above. It is unreachable from the
+> provider and is kept only because removing it must be done, built and tested on Windows; see
+> `CLAUDE.md` § Follow-ups.
+>
+> The Linux arm (`leia_conv_neurd_posix.cpp`, NeurD's CPU entry point) is described in
+> [conversion-provider.md § Desktop Linux](conversion-provider.md#desktop-linux-displayxr-leiaconversionso-cpu-transport).
 
 The Leia D3D11 display processor implements the runtime's **lift** slots — convert a
 single 2D RGBA frame into depth, a side-by-side stereo pair, or an N-view grid — by
-driving Leia's **NeurD** library. Source: `src/drv_leia/leia_lift_neurd.{h,cpp}`
-(module) and the slot glue at the bottom of `src/drv_leia/leia_display_processor_d3d11.cpp`,
+driving Leia's **NeurD** library. Source: `src/leia_lift_neurd.{h,cpp}`
+(module) and the slot glue at the bottom of `src/leia_display_processor_d3d11.cpp`,
 built against the real NeurD headers fetched at build time (see *Building*).
 
 The runtime owns the lift *policy* — which content is lifted, the async worker thread,
@@ -215,7 +241,7 @@ bytes pass through encoded — what NeurD expects).
 NeurD's `*_interactive` converts take one `(x, y, z)` triplet per output view in
 **dimensionless model units**: `x` horizontal disparity gain, `y` vertical offset, `z`
 depth offset. Its default stereo pattern is `x = −0.5 / +0.5`, i.e. **one unit of `x` is
-one nominal (63 mm) eye baseline**. The mapping lives in `src/drv_leia/leia_lift_viewpoint.{h,c}` (pure C,
+one nominal (63 mm) eye baseline**. The mapping lives in `src/leia_lift_viewpoint.{h,c}` (pure C,
 host-tested by `tests/test_lift_viewpoint.c` on the Linux CI lane) and has two contracts.
 
 ### Viewpoint policy (runtime ADR-048, `XRT_DP_LIFT_HAS_VIEWPOINT_POLICY`)

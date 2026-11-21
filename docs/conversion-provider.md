@@ -1,39 +1,48 @@
 # Leia conversion provider (`DisplayXR-LeiaConversion.dll`)
 
 The Leia **conversion provider** serves the runtime's 2D→3D conversion tasks — depth from an
-image or a video, and a stereo pair from one image — through Leia's NeurD module. It is the
-third DisplayXR plug-in type (runtime [ADR-053](https://github.com/DisplayXR/displayxr-runtime/blob/main/docs/adr/ADR-053-conversion-providers.md)),
-next to the display processor this repo has always shipped, and it replaces the runtime's
-legacy `dp-lift` adapter over the display processor's lift slots ([2D→3D lift via NeurD](lift-neurd.md)).
+image or a video, and a stereo pair from one image — through Leia's NeurD module. It is a
+DisplayXR conversion provider (runtime [ADR-053](https://github.com/DisplayXR/displayxr-runtime/blob/main/docs/adr/ADR-053-conversion-providers.md)),
+shipped from this repo as its own package. It is the only place Leia's 2D→3D conversion lives:
+the Leia SR display processor no longer carries a NeurD module or lift slots, and the provider
+still declares `Supersedes = dp-lift` so the runtime's legacy adapter stays hidden on a box whose
+Leia SR plug-in predates that change.
+
+**NeurD itself is an external prerequisite.** The NeurD runtime (a Leia media_sdk product: its
+library, its licence check, its models) has its own installer. This repo builds against NeurD's
+public headers only, never ships or downloads NeurD, and the provider finds an installed NeurD at
+run time ([Readiness](#readiness-and-the-version-gate), [Desktop Linux](#desktop-linux-displayxr-leiaconversionso-cpu-transport)).
+Without it the provider loads, reports `ABSENT`, and the runtime uses its next provider.
 
 Contract (runtime repo): header `src/xrt/include/xrt/xrt_conversion_plugin.h` (ABI 1, runtime
 ≥ v2.41.0), [discovery spec](https://github.com/DisplayXR/displayxr-runtime/blob/main/docs/specs/runtime/conversion-provider-discovery.md)
 §2 (C ABI, threading, hosting rules), §3 (registration) and §3.8 (installer contract), and the
 vendor onboarding guide §9.
 
-## Shape: a separate DLL
+## Shape: its own binary, its own package
 
-| | Display processor | Conversion provider |
-|---|---|---|
-| Binary | `DisplayXR-LeiaSR.dll` | `DisplayXR-LeiaConversion.dll` |
-| Export | `xrtPluginNegotiate` | `xrtConversionPluginNegotiate` (the only one; CI asserts it) |
-| Registry row | `DisplayProcessors\leia-sr` | `ConversionProviders\leia-conversion` |
-| Loaded by | the service and in-process apps | `displayxr-conversion-host.exe` (the satellite), only |
-| Needs LeiaSR | delay-loaded, reports its platform state | **never**: no SR SDK import, no weaver, no SR session |
+| | |
+|---|---|
+| Binary | `DisplayXR-LeiaConversion.dll` / `.so` |
+| Export | `xrtConversionPluginNegotiate` (the only one; CI asserts it) |
+| Registration | Windows: `HKLM\Software\DisplayXR\ConversionProviders\leia-conversion`; Linux: `050-leia-conversion-conversion-provider.json` |
+| Loaded by | the runtime's conversion host (`displayxr-conversion-host`), only |
+| Needs LeiaSR | **never**: no SR SDK import, no weaver, no SR session, no link to any display processor |
+| Needs NeurD | at run time only, found on the box; never at build or link time |
 
-Separate DLLs are the recommended shape (discovery spec §3.7): a combined DLL would keep NeurD
-mapped in the service through its display half, which is exactly the file lock satellite
-hosting removes. The new DLL does **not** link or load `DisplayXR-LeiaSR.dll`; it compiles the
-same module sources (`src/drv_leia/leia_lift_neurd.cpp`, `leia_lift_viewpoint.c`,
-`leia_lift_depth.c`), so both use one NeurD search order, one version floor and one convert
-path. Source: `src/conv_leia/`.
+It is hosted in the satellite, so the service never maps the provider or NeurD (discovery spec
+§3.7): updating either costs no app session. Source: `src/`.
 
 | File | What |
 |---|---|
-| `leia_conv_plugin.cpp` | the negotiate entry point and the v1 iface |
-| `leia_conv_d3d11.{h,cpp}` | the provider's own D3D11 device and its image import (NT handle / CPU), sync, and the output blit |
-| `leia_conv_policy.{h,c}` | pure decisions, host-tested: the readiness gate, the licence class, output extents, convergence units |
-| `tests/` | the policy test (every lane) and the provider test against fake modules (Windows) |
+| `leia_conv_plugin.cpp` | the negotiate entry point, the v1 iface, and `describe_settings` |
+| `leia_conv_d3d11.{h,cpp}` | Windows: the provider's own D3D11 device and its image import (NT handle / CPU), sync, and the output blit |
+| `leia_lift_neurd.{h,cpp}` | Windows: the NeurD module (discovery, load, licence, streams, the device bridge, convert). See [NeurD module](neurd-module.md) |
+| `leia_conv_neurd_posix.cpp`, `leia_conv_neurd_cpu.h` | Linux: the NeurD module over NeurD's CPU entry point |
+| `leia_conv_cpu.{h,c}` | Linux: the pixel moves of the CPU transport (pure) |
+| `leia_lift_viewpoint.{h,c}`, `leia_lift_depth.{h,c}` | both: viewpoint mapping, depth metadata and the off-axis camera (pure) |
+| `leia_conv_policy.{h,c}` | pure decisions: the readiness gate, the licence class, output extents, convergence units |
+| `tests/` | the pure tests (every lane), the provider test against fake modules (Windows), the harness and the fake `libNeurD.so` (Linux) |
 
 ## Capabilities
 
@@ -43,14 +52,14 @@ path. Source: `src/conv_leia/`.
 | 2 | `DEPTH_VIDEO` | stream | depth | `TEMPORAL`; `FRAME_RESET` drops the module stream (fresh temporal state) |
 | 3 | `VIEWS_MONO` | stream | views (+ depth) | exactly 2 views (`min_views = max_views = 2`), `EXPLICIT_VIEWPOINTS`, `OFFAXIS_CAMERA` when the module has the metric off-axis camera; aux depth of the **same inference** iff the module reports it |
 
-- **Why 2 views.** NeurD's public output types fix the tile grid ([N-view](lift-neurd.md#n-view)). A
+- **Why 2 views.** NeurD's public output types fix the tile grid ([N-view](neurd-module.md#n-view)). A
   stream for more views is served by the runtime's composed pipeline (a depth capability + its
   reference view synthesis), never by this capability.
 - **Depth.** A depth target is `R32_FLOAT`. `DEPTH_*` write the module's per-frame min-max
   normalised disparity as `AFFINE_INVERSE` (decoded value = disparity, larger = nearer).
   `VIEWS_MONO`'s aux depth keeps the module's own units: `METRIC` (metres) with
   `VideoModel=metric`, else `AFFINE_INVERSE` — mapped field by field exactly as the runtime's
-  `dp-lift` adapter maps the display processor's `lift_get_depth`, including the relief mapping
+  `dp-lift` adapter mapped a display processor's `lift_get_depth`, including the relief mapping
   (ADR-046 A1, `relief_*`) of an off-axis convert and the assumed pinhole (rescaled to the target).
 - **Per-request geometry in, relief out.** Display metres, resolved viewpoints, the axis mode,
   clamp and nominal distance arrive on every call in `xrt_conv_params`; the provider reads no
@@ -108,84 +117,75 @@ build. `licence_spdx` is `LicenseRef-LeiaInc`.
 
 ## Settings
 
-Only through `host->get_setting` — never this process's environment, never
-`HKLM\SOFTWARE\DisplayXR\Leia\Lift` (that key stays the display processor's). The host resolves
-`DXR_CONV_LEIA_CONVERSION_<KEY>` in its environment (the service's), else
-`HKLM\Software\DisplayXR\ConversionProviders\leia-conversion\Settings\<KEY>`.
+Only through `host->get_setting` — never this process's environment, never the retired
+`HKLM\SOFTWARE\DisplayXR\Leia\Lift` key or `DXR_LEIA_LIFT*` variables (those belonged to the
+display processor's lift slots, which no longer exist; nothing reads them). The host resolves
+`DXR_CONV_LEIA_CONVERSION_<KEY>` in its environment (the service's), else the per-user store, else
+`HKLM\Software\DisplayXR\ConversionProviders\leia-conversion\Settings\<KEY>` (Linux: the
+per-user `leia-conversion.settings.json`, else the manifest's `settings` object).
+
+The provider declares every key through `describe_settings` (the runtime's one options contract),
+so the CLI lists and edits them:
+
+```
+displayxr-cli conv options leia-conversion
+displayxr-cli conv set leia-conversion Backend openvino
+displayxr-cli conv unset leia-conversion Backend
+```
 
 | Key | Meaning |
 |---|---|
 | `Enable` | `0` turns the provider off (`DISABLED`) |
 | `NeurDPath` | absolute path of the module DLL; when set it is the **only** place looked at |
-| `MinVersion`, `Backend`, `VideoModel`, `InteractiveMin`, `Scale` | as in [lift-neurd.md § Knobs](lift-neurd.md#knobs) (process-wide; the first warm in a host decides) |
-| `ViewGain`, `YGain`, `ZGain`, `ConvGain`, `DepthGain`, `Dilate`, `OffAxis`, `ReliefDepthM`, `MetricReliefMaxM` | as in [lift-neurd.md § Knobs](lift-neurd.md#knobs) (snapshotted per stream) |
+| `MinVersion`, `Backend`, `VideoModel`, `InteractiveMin` (Windows only), `Scale` | as in [neurd-module.md § Knobs](neurd-module.md#knobs) (process-wide; the first warm in a host decides) |
+| `ViewGain`, `YGain`, `ZGain`, `ConvGain`, `DepthGain`, `Dilate`, `OffAxis`, `ReliefDepthM`, `MetricReliefMaxM` | as in [neurd-module.md § Knobs](neurd-module.md#knobs) (snapshotted per stream) |
+
+Types, defaults and the accepted words are in the table `g_settings` in `src/leia_conv_plugin.cpp`
+(16 keys on Windows, 15 on Linux); keep it in step with the modules' `read_knobs` and this table.
 
 ## Registration
 
-The plug-in installer writes, in the 64-bit view:
+The installer writes, in the 64-bit view:
 
 | `HKLM\Software\DisplayXR\ConversionProviders\leia-conversion` | |
 |---|---|
-| `Binary` | `<install dir>\DisplayXR-LeiaConversion.dll` |
+| `Binary` | `<install dir>\DisplayXR-LeiaConversion.dll` (`%ProgramFiles%\DisplayXR\Plugins\LeiaConversion`) |
 | `DisplayName` | `Leia conversion (NeurD)` |
 | `Vendor` | `Leia Inc.` |
 | `ProbeOrder` | `50` (the vendor band) |
-| `Supersedes` | `dp-lift` — hides the legacy adapter over this plug-in's own lift slots, so the two are never listed twice; it never affects selection among other providers, so an absent module still falls through |
-| `UninstallString` | the plug-in uninstaller |
+| `Supersedes` | `dp-lift` — hides the runtime's legacy adapter over a display plug-in's lift slots (an older Leia SR plug-in), so the two are never listed twice; it never affects selection among other providers, so an absent module still falls through |
+| `UninstallString` | this package's uninstaller |
 | `Version` | written **last** (removed first on an update): the "row complete" marker |
 
 `Hosting` is not written (the runtime default, satellite). A `Settings` subkey the user created
-survives an update; the uninstaller removes the whole row.
+survives an update; the uninstaller removes the whole row, but only while the row still points at
+this package's DLL.
 
-## Installer contract: close the host, never the service
-
-The NSIS installer (`installer/DisplayXRLeiaSRInstaller.nsi`, built with `LEIA_CONV` when the DLL
-was built) follows the discovery spec §3.8 sequence for the provider's files:
-
-1. Create **and own** `Global\DisplayXR-ConvMaintenance-leia-conversion`, held to the end (wait up
-   to 120 s if another installer — NeurD's own — holds it). While it is held the service spawns
-   no conversion host for `leia-conversion`.
-2. A Restart Manager session (`dxr-rm-close.exe session`) over the provider's DLL **only**: it
-   lists `displayxr-conversion-host.exe`, which exits 20 ("closed for update"); the provider's
-   tasks report `WARMING(updating)` and every app session and stream stays alive. No `taskkill`
-   fallback: nothing in this session may stop the service.
-3. Then the display processor's own Restart Manager session (unchanged: its DLL is mapped by the
-   service, so that session closes and restores the service as before).
-4. Copy the files; write the `ConversionProviders` row with `Version` last.
-5. End the provider's session restarting **nothing** (the host never registers for restart; the
-   service respawns it on demand), release the mutex, then let the display session restore the
-   service.
-
-Uninstall runs the same sequence, deleting the row first. An aborted install releases the mutex
-and ends both sessions. The display half still closes the service on every plug-in update —
-that is the display DLL's cost, not the provider's.
-
-**The NeurD installer** (a separate, internal installer) should take the same mutex and run its
-Restart Manager session over the NeurD files; with the provider satellite-hosted, that session
-lists the conversion host, not the service. Until the runtime stops loading NeurD in the service
-altogether (the display processor's lift slots stay compiled for older runtimes), the service may
-still appear there on a runtime that routes lift through `dp-lift` — that is runtime roadmap
-§11.2's open must-verify item.
+Installer contract ("close the host, never the service"), the handover from the Leia SR plug-in
+installer that used to own this row, the `.deb`'s `Replaces` / `Breaks`, and releasing:
+[installer.md](installer.md).
 
 ## Building and testing
 
-The DLL needs the runtime headers with `xrt_conversion_plugin.h` (the Windows pin
-`DXR_RUNTIME_GIT_TAG` ≥ v2.41.0) and the private NeurD headers (`NEURD_SDK_ROOT`, fetched by
-`scripts\build-windows.bat` / CI, see [lift-neurd.md § Building](lift-neurd.md#building)). Without
-the NeurD headers the DLL is skipped (CMake says so) and nothing else changes.
+The DLL needs the runtime headers with `xrt_conversion_plugin.h` (the pin `DXR_RUNTIME_GIT_TAG`
+in `CMakeLists.txt`, ≥ v2.41.0) and the private NeurD headers (`NEURD_SDK_ROOT`, fetched by
+`scripts\build-windows.bat` / CI at the ref in `scripts/neurd-pins.env`). Without the NeurD
+headers there is no provider to build; only the pure tests are (`-DDXR_CONV_PURE_TESTS_ONLY=ON`).
+The NeurD **runtime** is not needed to build or to run any test here.
 
 ```bat
-scripts\build-windows.bat build
-ctest --test-dir build\src\conv_leia -C Release --output-on-failure
+scripts\build-windows.bat all
+scripts\build-windows.bat test
 ```
 
 | Test | What it pins |
 |---|---|
+| `test_lift_viewpoint`, `test_lift_depth`, `test_conv_leia_cpu` | viewpoint mapping, depth metadata + the off-axis camera, the CPU transport's pixel moves. Pure C, every lane |
 | `test_conv_leia_policy` | the readiness gate (too old → `FAILED(VERSION)`, missing → `ABSENT(MODEL)`, network / licence / load / device-loss rows), the licence class from the module's words, extents, decoded-convergence mapping, depth kinds. Pure C, every lane |
-| `test_conv_leia_provider_{missing,old,noentry,disabled}` | the provider's entry point linked statically, a fake host (settings only): negotiate (another major refused), every iface slot present, the describe_cap contract (count, well-formed capabilities, index past the end untouched, writes only within `struct_size`, one generation per walk), `get_state` truncation, no stream before `READY` — and the gate on fake modules: no module → `ABSENT(MODEL)` + `PLATFORM_ABSENT`; a module older than the floor → `FAILED(VERSION)` at probe **and** after `warm`, `INCOMPATIBLE`, **never mapped**; a new-enough module without the entry point → `INSTALLED`, then `FAILED(LOAD)` with a pushed `notify_changed`; `Enable=0` → `DISABLED`; a cancelled `warm` changes nothing |
+| `test_conv_leia_provider_{missing,old,noentry,disabled}` | the provider's entry point linked statically, a fake host (settings only): negotiate (another major refused), every iface slot present, the declared settings (`describe_settings`: 16 well-formed, unique keys), the describe_cap contract (count, well-formed capabilities, index past the end untouched, writes only within `struct_size`, one generation per walk), `get_state` truncation, no stream before `READY` — and the gate on fake modules: no module → `ABSENT(MODEL)` + `PLATFORM_ABSENT`; a module older than the floor → `FAILED(VERSION)` at probe **and** after `warm`, `INCOMPATIBLE`, **never mapped**; a new-enough module without the entry point → `INSTALLED`, then `FAILED(LOAD)` with a pushed `notify_changed`; `Enable=0` → `DISABLED`; a cancelled `warm` changes nothing |
 
 CI (`build-windows.yml`) also asserts the DLL's export set (exactly `xrtConversionPluginNegotiate`)
-and that it imports neither the SR SDK, the display DLL nor the NeurD module.
+and that it imports neither the SR SDK, a display plug-in nor the NeurD module.
 
 On a box with the runtime: register the dev DLL with the runtime's
 `scripts\register_dev_plugin.bat conv <dll>` (elevated), then `displayxr-cli conv list` /
@@ -196,19 +196,18 @@ provider's lines start `Leia conversion:` and the module's `Leia lift:` / `NeurD
 ## Desktop Linux (`DisplayXR-LeiaConversion.so`, CPU transport)
 
 The same provider source builds on desktop Linux with `LEIA_CONV_CPU_TRANSPORT`
-(`src/conv_leia/CMakeLists.txt`, POSIX section). Windows is unchanged: the D3D11
-transport and `../drv_leia/leia_lift_neurd.cpp` are not compiled there, and the
-Windows branch of `leia_conv_plugin.cpp` is textually the code it was.
+(`src/CMakeLists.txt`, POSIX section): the D3D11 transport and `leia_lift_neurd.cpp` are not
+compiled there.
 
 | | Windows | Linux |
 |---|---|---|
 | Binary | `DisplayXR-LeiaConversion.dll` | `DisplayXR-LeiaConversion.so` (one export, `xrtConversionPluginNegotiate`; version script) |
-| NeurD module | `drv_leia/leia_lift_neurd.cpp` (D3D11 bridge, `NeurD_convert_stream_dx_ex`) | `conv_leia/leia_conv_neurd_posix.cpp` (`dlopen("libNeurD.so")`; `NeurD_convert_stream_cpu_ex` on NeurD >= 0.5.0, else `NeurD_convert_stream_cpu`) |
+| NeurD module | `leia_lift_neurd.cpp` (D3D11 bridge, `NeurD_convert_stream_dx_ex`) | `leia_conv_neurd_posix.cpp` (`dlopen("libNeurD.so")`; `NeurD_convert_stream_cpu_ex` on NeurD >= 0.5.0, else `NeurD_convert_stream_cpu`) |
 | Transport | NT handle / CPU, keyed mutex / fence | host memory only (`XRT_CONV_MEM_CPU`, `SYNC_NONE`); the runtime copies GPU images to host memory for this lane |
 | Capabilities | DEPTH_MONO (1), DEPTH_VIDEO (2), VIEWS_MONO (3) | VIEWS_MONO (3) only; with `cpu_ex` on OpenVINO it also returns the R32F depth of the same inference (aux depth) |
 | Viewpoints | explicit (interactive / off-axis) | `cpu_ex`: identical to Windows — the metric off-axis camera from the runtime's rect-relative eyes (`leia_lift_oa_build`, the same helper), else the dimensionless pattern (`leia_lift_vp_map`). Older NeurD: the pair's horizontal separation only, as NeurD's gain (no look-around) |
 | Convergence | runtime's DECODED value, or NeurD's own AUTO | `cpu_ex`: as Windows — `AUTO_CONVERGENCE` declared; the off-axis screen plane comes from the runtime's value, else NeurD's auto-convergence of the previous inference (when its depth is retained), else mid-depth. Older NeurD: not applied (its CPU renderer ignores `CONVERGENCE`), `AUTO_CONVERGENCE` never declared |
-| Registration | `HKLM\…\ConversionProviders\leia-conversion`, ProbeOrder 50 | `050-leia-conversion-conversion-provider.json` in a DisplayProcessors root (the build writes a dev one under `build/src/conv_leia/_conv_manifest/`) |
+| Registration | `HKLM\…\ConversionProviders\leia-conversion`, ProbeOrder 50 | `050-leia-conversion-conversion-provider.json` in a discovery root (the build writes a dev one under `build/src/_conv_manifest/`) |
 
 **Finding NeurD (no load).** In order: the `NeurDPath` setting (the `.so` or its
 directory; pins it), the NeurD runtime package's install directory
@@ -239,16 +238,15 @@ works, but without look-around. The fake `libNeurD.so` in `tests/fake_neurd.c` (
 table that ends right before a `PROT_NONE` page, with and without the entry and the
 export) checks this in CI.
 
-**Packaging.** `scripts/package_deb_leia.sh` ships the provider in the
-`displayxr-leia-sr` `.deb` when `NEURD_SDK_ROOT` is set (CI's Deb job fetches the
-headers; a `v*` tag refuses to package without them):
+**Packaging.** `scripts/package_deb.sh` builds `displayxr-leia-conversion_<ver>_<arch>.deb`:
 `/usr/lib/displayxr/plugins/DisplayXR-LeiaConversion.so` plus
-`050-leia-conversion-conversion-provider.json` (probe order 50, absolute
-`binary_path`). The package has no relation to NeurD: the provider loads no NeurD
-symbol at link time (the script refuses a `libNeurD` `DT_NEEDED`), and the NeurD runtime
-package is in no Ubuntu archive, so a `Recommends` would fail the install checks. Without
-NeurD the provider reports `ABSENT` and the runtime uses Open Conversion. The script also
-refuses a provider built without `cpu_ex` unless you pass `--allow-no-look-around`.
+`050-leia-conversion-conversion-provider.json` (probe order 50, absolute `binary_path`). The
+package has no relation to NeurD: the provider loads no NeurD symbol at link time (the script
+refuses a `libNeurD` `DT_NEEDED`), and the NeurD runtime package is in no Ubuntu archive, so a
+`Recommends` would fail the install checks. Without NeurD the provider reports `ABSENT` and the
+runtime uses its next provider. The script also refuses a provider built without `cpu_ex` unless
+you pass `--allow-no-look-around`. It `Replaces` and `Breaks` the `displayxr-leia-sr` versions that
+shipped the same two files ([installer.md](installer.md#linux-the-deb)).
 
 **Settings** (`<id>.settings.json` / the manifest `settings` object /
 `DXR_CONV_LEIA_CONVERSION_<KEY>`): `Enable`, `NeurDPath`, `Backend`
@@ -265,8 +263,8 @@ NPU the Level Zero NPU driver; without them OpenVINO runs on the CPU.
 export with a fake host and converts a still image file:
 
 ```bash
-NEURD_SDK_ROOT=… ./scripts/build-linux.sh        # or scripts/fetch-neurd-headers.sh first
-build/src/conv_leia/conv_leia_harness --provider build/src/conv_leia/DisplayXR-LeiaConversion.so \
+./scripts/build-linux.sh                          # fetches the pinned NeurD headers when missing
+build/src/conv_leia_harness --provider build/src/DisplayXR-LeiaConversion.so \
     --neurd-path /opt/immersity/neurd-runtime --input frame.png --out views.png --frames 20
 ```
 
@@ -275,5 +273,5 @@ summary (warm, first, median, p90 convert time). `--eye-x 0,0.02,0.04` sweeps th
 viewer's midpoint (one `<out>.<i>.png` per value), `--rect WxH` / `--no-rect` choose
 rect-relative or panel viewpoints, `--depth d.f32` requests the aux depth. Without NeurD,
 `--expect absent` / `--enable 0 --expect disabled` check the gates (CI runs both), and
-`--neurd-path build/src/conv_leia/fake_neurd/<short|short_sized|full|full_sized>/libNeurD.so
---expect ready` the table guard.
+`--neurd-path build/src/fake_neurd/<short|short_sized|full|full_sized>/libNeurD.so
+--expect ready` the table guard, and `--list-settings` prints what `describe_settings` declares.

@@ -1,0 +1,13 @@
+DisplayXR Leia Conversion Provider
+Copyright (c) 2026 Leia, Inc. and the DisplayXR project contributors
+
+This product includes software developed by Leia, Inc. and the DisplayXR
+project contributors. It is licensed under the Apache License, Version 2.0;
+see the LICENSE file for the full text.
+
+The provider's sources were first developed in the DisplayXR Leia SR plug-in
+repository (DisplayXR/displayxr-leia-plugin, src/conv_leia and the NeurD module
+under src/drv_leia) and moved here unchanged in licence.
+
+NeurD is a separate Leia product with its own licence. This repository contains
+no NeurD code, headers, binaries or models.
