@@ -5,7 +5,7 @@
  * @brief  Pure math for NeurD's depth export and its metric off-axis camera:
  *         depth metadata -> the runtime's vendor-neutral depth description, and
  *         runtime viewpoints + rect -> NeurD's screen / per-view eye positions.
- *         See docs/lift-neurd.md § "Depth export" and § "Off-axis camera".
+ *         See docs/neurd-module.md § "Depth export" and § "Off-axis camera".
  *
  * Platform-neutral C with no NeurD / SR / D3D dependency (the NeurD structs are
  * mirrored by plug-in-owned ones), so it is host-tested on the Linux CI lane
@@ -22,7 +22,7 @@
  *  - Off-axis renderer: n sits at z = C - n * D in front of the screen
  *    (C = convergence_depth_m, D = depth_scale_m), so h0 = 1 - C / D.
  *
- * @ingroup drv_leia
+ * @ingroup conv_leia
  */
 
 #pragma once

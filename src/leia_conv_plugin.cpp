@@ -8,7 +8,7 @@
  * A separate DLL from the display processor (DisplayXR-LeiaSR.dll): it never
  * loads the SR SDK, never creates a weaver or an SR session, and never touches
  * the display DLL. It compiles the same NeurD module source the display DLL's
- * lift slots use (../drv_leia/leia_lift_neurd.cpp — same search order, same
+ * lift slots use (leia_lift_neurd.cpp — same search order, same
  * version floor, same convert / depth / off-axis paths), hosted the provider
  * way:
  *
@@ -428,7 +428,7 @@ fill_cap(const struct snapshot &s, uint32_t index, struct xrt_conv_capability *c
 	c->flags = XRT_CONV_CAP_NEEDS_NETWORK_TO_WARM; // the module's first licence activation
 
 	if (c->task == XRT_CONV_TASK_VIEWS_MONO) {
-		// NeurD's public output types fix the tile grid at two views (docs/lift-neurd.md
+		// NeurD's public output types fix the tile grid at two views (docs/neurd-module.md
 		// "N-view"); more views come from the runtime's composed pipeline.
 		c->min_views = 2;
 		c->max_views = 2;

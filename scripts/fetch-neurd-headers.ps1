@@ -2,17 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Fetch the NeurD public headers from the PRIVATE LeiaInc/media_sdk repo at a
-# pinned ref, for the plug-in's 2D->3D lift module (docs/lift-neurd.md).
+# pinned ref, for the conversion provider (the pins live in scripts/neurd-pins.env).
 #
 # These headers are Leia-private: they land in a gitignored directory
 # (NeurD-SDK-<ref>/include, see .gitignore) and must never be committed or
-# re-hosted on this public repo -- same rule as the SR SDK.
+# re-hosted.
 #
 # Auth: `gh` with an account (or GH_TOKEN) that can read LeiaInc/media_sdk.
-# CI passes secrets.LEIALOFT_GITHUB_TOKEN, the token the SR SDK fetch uses.
+# CI passes secrets.LEIALOFT_GITHUB_TOKEN.
 #
-# Exit 0 = headers ready; 1 = fetch failed. Callers treat failure as SOFT:
-# the lift module compiles out and the rest of the plug-in builds unchanged.
+# Exit 0 = headers ready; 1 = fetch failed. Without the headers there is no
+# provider to build; only the pure tests are.
 #
 # Usage: fetch-neurd-headers.ps1 -Repo LeiaInc/media_sdk -Ref v0.4.6 -Dest <dir>
 

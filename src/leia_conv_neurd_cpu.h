@@ -6,7 +6,7 @@
  *         leia_lift_neurd.h lifecycle (create / probe / activate / status /
  *         streams) over libNeurD.so, plus a CPU convert.
  *
- * The Windows arm compiles ../drv_leia/leia_lift_neurd.cpp, whose convert is
+ * The Windows arm compiles leia_lift_neurd.cpp, whose convert is
  * D3D11 end to end. NeurD's Linux build has no D3D11 and no CUDA-free GPU entry
  * point, so this arm implements the same lifecycle API in
  * leia_conv_neurd_posix.cpp and converts through NeurD's CPU entry points

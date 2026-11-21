@@ -1,0 +1,13 @@
+/build/
+/build-*/
+/_package/
+/dist/
+/out/
+/.vs/
+/.vscode/
+*.user
+CMakeUserPresets.json
+__pycache__/
+# Fetched NeurD headers (Leia-private; scripts/fetch-neurd-headers.{sh,ps1}).
+# Never commit or re-host them.
+NeurD-SDK-*/

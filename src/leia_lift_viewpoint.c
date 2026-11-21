@@ -3,7 +3,7 @@
 /*!
  * @file
  * @brief  Lift viewpoint mapping (metres -> NeurD units). See the header.
- * @ingroup drv_leia
+ * @ingroup conv_leia
  */
 
 #include "leia_lift_viewpoint.h"

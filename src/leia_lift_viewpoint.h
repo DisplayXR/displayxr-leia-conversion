@@ -3,7 +3,7 @@
 /*!
  * @file
  * @brief  Pure mapping: lift viewpoints in metres -> NeurD's dimensionless
- *         viewpoint units. See docs/lift-neurd.md § "Tracked eyes -> NeurD
+ *         viewpoint units. See docs/neurd-module.md § "Tracked eyes -> NeurD
  *         viewpoints".
  *
  * Platform-neutral C with no NeurD / SR / D3D dependency, so it is host-tested
@@ -20,7 +20,7 @@
  *    baseline (NeurD's ±0.5 default pair), so the runtime's ipd factor shows
  *    through; every axis the runtime let through is honoured.
  *
- * @ingroup drv_leia
+ * @ingroup conv_leia
  */
 
 #pragma once

@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 /*!
  * @file
- * @brief  NeurD-backed 2D->3D conversion ("lift") for the Leia D3D11 DP.
+ * @brief  NeurD-backed 2D->3D conversion ("lift"): the NeurD module of the
+ *         Leia conversion provider's Windows arm (see the HISTORY note in
+ *         leia_lift_neurd.h: the display-processor hosting described below
+ *         is no longer used by anything).
  *
- * Design notes (full write-up: docs/lift-neurd.md):
+ * Design notes (full write-up: docs/neurd-module.md):
  *
  *  - Dynamic load only. NeurD.dll is located the way NeurD's own loader does it
  *    (PATH -> NEURD_PATH -> HKLM\SOFTWARE\LeiaInc\NeurD default value) but it
@@ -56,7 +59,7 @@
 
 #include "leia_lift_neurd.h"
 // The REAL NeurD header, fetched at build time from the private LeiaInc/media_sdk
-// repo at the pinned NEURD_SDK_REF (never committed here; see docs/lift-neurd.md).
+// repo at the pinned NEURD_SDK_REF (never committed here; see docs/neurd-module.md).
 // Only its types, PFN typedefs and header-inline table wrappers are used — the
 // wrappers dispatch through the table NeurD_load returns and version-check each
 // entry — so there is no import lib and no link dependency on NeurD, and any
@@ -2704,7 +2707,7 @@ leia_lift_neurd_convert(struct leia_lift_neurd *l,
 			// Provider hosting: the plane as a metric depth (the units of the
 			// metric aux depth this stream returned). h0 = S / (255 d) is the
 			// 8-bit disparity NeurD's renderers put at zero parallax, and the
-			// normalised depth there is 1 - h0 (docs/lift-neurd.md). No scale
+			// normalised depth there is 1 - h0 (docs/neurd-module.md). No scale
 			// yet (first frames) = AUTO.
 			if (s->metric_scale > 0.0f) {
 				const float h0 = leia_lift_h_from_metric_depth(s->metric_scale, dp.convergence_metric_m);
@@ -2770,7 +2773,7 @@ leia_lift_neurd_convert(struct leia_lift_neurd *l,
 		// 0.2]. Linear map about the mid-range, K =
 		// DXR_LEIA_LIFT_CONV_GAIN (default 0.4 spans NeurD's full
 		// range; negate K if the sign proves reversed on a panel).
-		// UNCALIBRATED — see docs/lift-neurd.md.
+		// UNCALIBRATED — see docs/neurd-module.md.
 		const float nd_conv = clampf(s->k.conv_gain * (clampf(dp.convergence, 0.0f, 1.0f) - 0.5f), -0.2f, 0.2f);
 
 		// Output layout + inference size: process-global in NeurD (no

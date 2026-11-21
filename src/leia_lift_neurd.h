@@ -2,12 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 /*!
  * @file
- * @brief  NeurD-backed 2D->3D conversion ("lift") for the Leia D3D11 display
- *         processor. See docs/lift-neurd.md.
+ * @brief  NeurD-backed 2D->3D conversion ("lift"): the module behind the Leia
+ *         conversion provider's Windows arm. See docs/neurd-module.md.
  *
- * Plug-in-owned types only — the D3D11 DP translates the runtime's
- * xrt_dp_lift_* contract (behind XRT_DP_D3D11_HAS_LIFT) onto this, so the
- * module builds against any runtime pin.
+ * HISTORY. This module was written for the Leia D3D11 display processor's
+ * lift slots and still carries that hosting (a background activation thread,
+ * knobs from DXR_LEIA_LIFT* / HKLM\SOFTWARE\DisplayXR\Leia\Lift). The display
+ * processor no longer has lift slots; the ONLY caller is the conversion
+ * provider (leia_conv_plugin.cpp), which always sets a setting reader and
+ * manual activation ("Conversion-provider hosting" below) before the first
+ * create. Everything in this header that describes "the DP" is the other,
+ * now unused, hosting. Types here are the module's own, so it builds against
+ * any runtime pin.
  *
  * Process model: ONE NeurD instance per process, loaded + initialised lazily on
  * a background thread the first time a DP asks for caps or a stream (never at
@@ -26,7 +32,7 @@
  * never a render/IPC thread. Calls are serialised process-wide (NeurD's
  * properties are global).
  *
- * @ingroup drv_leia
+ * @ingroup conv_leia
  */
 
 #pragma once
@@ -130,7 +136,7 @@ struct leia_lift_neurd_params
 	                           //!< metres; 0 = unknown (use ref_z_m).
 
 	/*!
-	 * Conversion provider only (src/conv_leia): the zero-parallax plane as a
+	 * Conversion provider only: the zero-parallax plane as a
 	 * METRIC depth in metres (> 0), in the units of the metric aux depth this
 	 * stream returned. Converted to @ref convergence here, with the stream's own
 	 * metric model scale; until that scale is known the convert runs AUTO.
@@ -243,7 +249,7 @@ leia_lift_neurd_get_depth(struct leia_lift_neurd *lift, uint64_t id, struct leia
 
 /*
  *
- * Conversion-provider hosting (src/conv_leia, ADR-053). The display processor
+ * Conversion-provider hosting (ADR-053). The display processor
  * never calls these; the module then behaves exactly as described above.
  *
  */
@@ -346,7 +352,7 @@ leia_lift_neurd_stream_reset(struct leia_lift_neurd *lift, uint64_t id);
  * x_m / 0.063, ±3), y_n = z_n = 0. A centred viewer at 63 mm IPD maps to
  * x = -0.5 / +0.5 — exactly NeurD's default stereo pattern. The full mapping,
  * including the runtime's viewpoint policy, is leia_lift_vp_map()
- * (leia_lift_viewpoint.h); see docs/lift-neurd.md.
+ * (leia_lift_viewpoint.h); see docs/neurd-module.md.
  */
 void
 leia_lift_neurd_map_viewpoint(const float in_m[3], float gain, float out_n[3]);

@@ -3,7 +3,7 @@
 /*!
  * @file
  * @brief  Lift depth metadata + off-axis camera mapping. See the header.
- * @ingroup drv_leia
+ * @ingroup conv_leia
  */
 
 #include "leia_lift_depth.h"

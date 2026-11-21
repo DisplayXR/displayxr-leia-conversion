@@ -5,7 +5,7 @@
  * @brief  NeurD module of the conversion provider's POSIX arm (desktop Linux):
  *         discovery, load, licence / init, streams and the CPU convert over
  *         libNeurD.so. Implements the leia_lift_neurd.h lifecycle the provider
- *         uses (the Windows arm's ../drv_leia/leia_lift_neurd.cpp is D3D11
+ *         uses (the Windows arm's leia_lift_neurd.cpp is D3D11
  *         throughout and is not compiled here) plus leia_conv_neurd_cpu.h.
  *
  *  - Dynamic load only. libNeurD.so is found without loading it (presence is a
