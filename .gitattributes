@@ -1,0 +1,6 @@
+*.bat text eol=crlf
+*.sh text eol=lf
+# Imported byte for byte (some carry CRLF, and a patch file must keep its line
+# endings): never normalise.
+cmake/vcpkg-overlay-ports/** -text
+scripts/sign-release.ps1 -text
