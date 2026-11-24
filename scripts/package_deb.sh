@@ -132,7 +132,7 @@ cat > "$MANIFEST" <<JSON
     "file_format_version": "1.0",
     "plugin": {
         "id":           "leia-conversion",
-        "display_name": "Leia conversion (NeurD)",
+        "display_name": "Leia conversion",
         "vendor":       "Leia Inc.",
         "version":      "$VERSION",
         "binary_path":  "/usr/lib/displayxr/plugins/DisplayXR-LeiaConversion.so",
@@ -210,17 +210,16 @@ Replaces: $SPLIT_REL
 Breaks: $SPLIT_REL
 Installed-Size: $INSTALLED_KB
 Maintainer: Leia Inc / The DisplayXR Project <noreply@displayxr.dev>
-Description: DisplayXR Leia conversion provider (2D to 3D over NeurD)
+Description: DisplayXR Leia conversion provider (2D to 3D)
  The Leia conversion provider for the DisplayXR OpenXR runtime: Convert to 3D
- over Leia NeurD's CPU path, with views that follow the tracked viewer. Drops
- into the runtime's built-in plug-in directory (/usr/lib/displayxr/plugins)
- with the vendor probe order (50).
+ with views that follow the tracked viewer. Drops into the runtime's built-in
+ plug-in directory (/usr/lib/displayxr/plugins) with the vendor probe order
+ (50).
  .
- NeurD is not a dependency and is not part of this package: the provider loads
- it at run time from /opt/immersity/neurd-runtime when the NeurD runtime
- package is installed and declines without it, so the runtime uses its next
- conversion provider instead. NeurD has its own installer, licence check and
- models.
+ The Leia conversion runtime is not a dependency and is not part of this
+ package: the provider loads it at run time when it is installed and declines
+ without it, so the runtime uses its next conversion provider instead. The
+ Leia conversion runtime has its own installer.
  .
  Replaces the copy of the provider that displayxr-leia-sr shipped before
  version $LEIA_SR_SPLIT_VERSION.

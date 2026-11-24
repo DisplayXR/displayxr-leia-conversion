@@ -160,7 +160,7 @@ if(NOT WIN32)
     \"file_format_version\": \"1.0\",
     \"plugin\": {
         \"id\":           \"leia-conversion\",
-        \"display_name\": \"Leia conversion (NeurD)\",
+        \"display_name\": \"Leia conversion\",
         \"vendor\":       \"Leia Inc.\",
         \"version\":      \"${DXR_PLUGIN_GIT_DESC}\",
         \"binary_path\":  \"$<TARGET_FILE:DisplayXR-LeiaConversion>\",

@@ -64,6 +64,33 @@ add_setting(const char *k, const char *v)
 	}
 }
 
+/*
+ * User-facing strings (the provider's name, a capability's name and backend,
+ * the status hint, a state's detail line, a setting's help) do not name the
+ * conversion technology. Setting keys, file names and log lines may.
+ */
+static bool
+names_technology(const char *s)
+{
+	static const char k_word[] = "neurd";
+	for (; s != NULL && *s != '\0'; s++) {
+		if (strncasecmp(s, k_word, sizeof(k_word) - 1) == 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static bool
+plain(const char *what, const char *s)
+{
+	if (names_technology(s)) {
+		fprintf(stderr, "FAIL wording: %s names the conversion technology: \"%s\"\n", what, s);
+		return false;
+	}
+	return true;
+}
+
 static bool
 fake_get_setting(const char *key, char *buf, uint32_t size)
 {
@@ -215,6 +242,11 @@ main(int argc, char **argv)
 	}
 	printf("provider: id=%s name=\"%s\" vendor=\"%s\" version=%s api=%u\n", iface->id, iface->display_name,
 	       iface->vendor, iface->version, pv);
+	if (strcmp(iface->display_name, "Leia conversion") != 0) {
+		fprintf(stderr, "FAIL wording: the provider's name is \"%s\", expected \"Leia conversion\"\n",
+		        iface->display_name);
+		return 1;
+	}
 
 	if (list_settings) {
 #ifdef XRT_CONVERSION_PLUGIN_HAS_DESCRIBE_SETTINGS
@@ -240,6 +272,9 @@ main(int argc, char **argv)
 			}
 			printf("  %-18s %-7s default=%-8s %s\n", d[i].key, d[i].type,
 			       d[i].default_value[0] ? d[i].default_value : "-", d[i].help);
+			if (!plain("a setting's help", d[i].help)) {
+				ok = false;
+			}
 		}
 		if (ok) {
 			printf("settings: %u declared\n", n);
@@ -256,6 +291,9 @@ main(int argc, char **argv)
 	ps.struct_size = (uint32_t)sizeof(ps);
 	iface->get_provider_status(&ps);
 	printf("provider status: %u (%s)\n", ps.state, ps.hint);
+	if (!plain("the status hint", ps.hint)) {
+		return 1;
+	}
 
 	struct xrt_conversion_plugin_instance *inst = NULL;
 	if (iface->probe(&inst) != XRT_SUCCESS || inst == NULL) {
@@ -275,6 +313,9 @@ main(int argc, char **argv)
 		       i, c.cap_id, c.task, c.display_name, c.outputs, c.import_memory_kinds, c.import_sync_kinds, c.flags,
 		       c.licence_class, c.backend, c.model_id, c.model_version, c.min_views, c.max_views,
 		       c.est_latency_ms);
+		if (!plain("a capability's name", c.display_name) || !plain("a capability's backend", c.backend)) {
+			return 1;
+		}
 		if (c.task == XRT_CONV_TASK_VIEWS_MONO) {
 			views_cap = c.cap_id;
 		}
@@ -289,6 +330,9 @@ main(int argc, char **argv)
 	iface->get_state(inst, views_cap, &st);
 	printf("state before warm: %s (reason %u, retryable %u) version=\"%s\" detail=\"%s\"\n", state_str(st.state),
 	       st.failure_reason, st.retryable, st.version, st.detail);
+	if (!plain("the state's detail line", st.detail)) {
+		return 1;
+	}
 
 	if (expect != NULL && strcmp(expect, "absent") == 0) {
 		const bool ok = st.state == XRT_CONV_STATE_ABSENT && st.failure_reason == XRT_CONV_FAIL_MODEL &&

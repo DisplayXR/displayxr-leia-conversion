@@ -27,7 +27,7 @@
    },
    "_registered_as": "ConversionProviders\\leia-conversion (Windows registry, 64-bit view); 050-leia-conversion-conversion-provider.json (Linux manifest). ProbeOrder 50, conversion provider API 1.",
    "_external_prerequisite": {
-    "name": "NeurD runtime (Leia)",
+    "name": "Leia conversion runtime",
     "_note": "NOT shipped, downloaded or installed by this component or by DisplayXR. Schema 1 cannot express an external requirement; a client should detect it and report met / unmet, never install it.",
     "min_version": "0.4.6",
     "_min_version_note": "0.4.6 is the provider's default floor (the MinVersion setting). Linux look-around (views that follow the viewer) needs a NeurD that exports NeurD_get_table_size, first released as 0.5.0; an older one still converts, with a fixed pair.",

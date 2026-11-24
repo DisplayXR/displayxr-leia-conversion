@@ -112,6 +112,28 @@ nul_terminated(const char *s, size_t n)
 	return memchr(s, 0, n) != nullptr;
 }
 
+/*
+ * User-facing strings (the provider's name, a capability's name and backend,
+ * the status hint, a state's detail line, a setting's help) are shown by
+ * `displayxr-cli conv list | status | options` and the Dashboard. They do not
+ * name the conversion technology; setting KEYS, file names and log lines may.
+ */
+bool
+names_technology(const char *s)
+{
+	static const char k_word[] = "neurd";
+	for (; s != nullptr && *s != '\0'; s++) {
+		size_t i = 0;
+		while (k_word[i] != '\0' && s[i] != '\0' && (s[i] | 0x20) == k_word[i]) {
+			i++;
+		}
+		if (k_word[i] == '\0') {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool
 never(void *ctx)
 {
@@ -142,6 +164,7 @@ state_of(struct xrt_conversion_plugin_iface *iface, struct xrt_conversion_plugin
 	CHECK(st.struct_size == sizeof(st));
 	CHECK(nul_terminated(st.version, sizeof(st.version)));
 	CHECK(nul_terminated(st.detail, sizeof(st.detail)));
+	CHECK(!names_technology(st.detail));
 	return st;
 }
 
@@ -153,6 +176,7 @@ provider_status(struct xrt_conversion_plugin_iface *iface)
 	ps.struct_size = (uint32_t)sizeof(ps);
 	CHECK(iface->get_provider_status(&ps));
 	CHECK(nul_terminated(ps.hint, sizeof(ps.hint)));
+	CHECK(!names_technology(ps.hint));
 	CHECK((ps.flags & XRT_CONV_PROVIDER_FLAG_FALLBACK) == 0); // a real provider, never the fallback
 	return ps.state;
 }
@@ -167,7 +191,7 @@ check_iface(struct xrt_conversion_plugin_iface *iface)
 	CHECK(iface->struct_size == sizeof(struct xrt_conversion_plugin_iface));
 	CHECK(iface->reserved_0 == 0u);
 	CHECK(iface->id != nullptr && strcmp(iface->id, "leia-conversion") == 0);
-	CHECK(iface->display_name != nullptr && iface->display_name[0] != '\0');
+	CHECK(iface->display_name != nullptr && strcmp(iface->display_name, "Leia conversion") == 0);
 	CHECK(XRT_CONV_IFACE_HAS(iface, get_provider_status));
 	CHECK(XRT_CONV_IFACE_HAS(iface, probe));
 	CHECK(XRT_CONV_IFACE_HAS(iface, describe_cap));
@@ -207,6 +231,7 @@ check_iface(struct xrt_conversion_plugin_iface *iface)
 			      t == XRT_COMPONENT_SETTING_TYPE_FLOAT || t == XRT_COMPONENT_SETTING_TYPE_STRING ||
 			      t == XRT_COMPONENT_SETTING_TYPE_ENUM);
 			CHECK(keys.insert(descs[i].key).second);
+			CHECK(!names_technology(descs[i].help)); // the key may (NeurDPath is stored), its help does not
 		}
 		for (const char *k : {"Enable", "NeurDPath", "MinVersion", "Backend", "VideoModel", "InteractiveMin", "Scale",
 		                      "ViewGain", "YGain", "ZGain", "ConvGain", "DepthGain", "Dilate", "OffAxis",
@@ -281,6 +306,8 @@ check_describe(struct xrt_conversion_plugin_iface *iface, struct xrt_conversion_
 		CHECK(nul_terminated(cap.model_version, sizeof(cap.model_version)));
 		CHECK(nul_terminated(cap.backend, sizeof(cap.backend)));
 		CHECK(nul_terminated(cap.display_name, sizeof(cap.display_name)) && cap.display_name[0] != '\0');
+		CHECK(!names_technology(cap.display_name));
+		CHECK(!names_technology(cap.backend));
 		CHECK(cap.reserved_0 == 0u);
 		const struct xrt_conv_state st = state_of(iface, inst, cap.cap_id);
 		CHECK(st.state <= XRT_CONV_STATE_EVICTED);

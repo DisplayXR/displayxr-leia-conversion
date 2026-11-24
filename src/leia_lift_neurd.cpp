@@ -1296,7 +1296,8 @@ activation_worker()
 				        knob_src_str(g.k0.src_min_version), NEURD_GET_VERSION_MAJOR(g.k0.min_version),
 				        NEURD_GET_VERSION_MINOR(g.k0.min_version), NEURD_GET_VERSION_PATCH(g.k0.min_version));
 				mark_file_failure(path, nullptr);
-				note_failure(LEIA_LIFT_MODULE_TOO_OLD, "NeurD %u.%u.%u is older than the minimum %u.%u.%u",
+				note_failure(LEIA_LIFT_MODULE_TOO_OLD,
+				             "The Leia conversion runtime %u.%u.%u is older than the minimum %u.%u.%u",
 				             NEURD_GET_VERSION_MAJOR(file_ver), NEURD_GET_VERSION_MINOR(file_ver),
 				             NEURD_GET_VERSION_PATCH(file_ver), NEURD_GET_VERSION_MAJOR(g.k0.min_version),
 				             NEURD_GET_VERSION_MINOR(g.k0.min_version), NEURD_GET_VERSION_PATCH(g.k0.min_version));
@@ -1311,7 +1312,8 @@ activation_worker()
 				        "unavailable; re-checked when the file changes",
 				        path, where, err);
 				mark_file_failure(path, nullptr);
-				note_failure(LEIA_LIFT_MODULE_LOAD_FAILED, "NeurD.dll found but failed to load (error %lu)", err);
+				note_failure(LEIA_LIFT_MODULE_LOAD_FAILED,
+				             "The Leia conversion runtime was found but failed to load (error %lu)", err);
 				g.state.store(G_FAILED);
 				g.worker_running.store(false);
 				return;
@@ -1331,7 +1333,8 @@ activation_worker()
 				        path);
 				mark_file_failure(path, nullptr);
 				note_failure(LEIA_LIFT_MODULE_LOAD_FAILED,
-				             "NeurD was updated; restart the DisplayXR service to use the new one");
+				             "The Leia conversion runtime was updated; restart the DisplayXR service to use the "
+				             "new one");
 				g.state.store(G_FAILED);
 				g.worker_running.store(false);
 				return;
@@ -1343,7 +1346,7 @@ activation_worker()
 				U_LOG_W("Leia lift: NeurD.dll (%s) has no usable NeurD_load — lift unavailable", where);
 				// Deliberately no FreeLibrary: NeurD may have spun threads.
 				mark_file_failure(path, lib);
-				note_failure(LEIA_LIFT_MODULE_LOAD_FAILED, "NeurD.dll has no usable NeurD_load");
+				note_failure(LEIA_LIFT_MODULE_LOAD_FAILED, "The Leia conversion runtime has no usable entry point");
 				g.state.store(G_FAILED);
 				g.worker_running.store(false);
 				return;
@@ -1368,7 +1371,8 @@ activation_worker()
 				// Deliberately no FreeLibrary: NeurD may have spun threads. (A NeurD
 				// with a version resource is refused before the load, above.)
 				mark_file_failure(path, lib);
-				note_failure(LEIA_LIFT_MODULE_TOO_OLD, "NeurD %u.%u.%u is older than the minimum %u.%u.%u",
+				note_failure(LEIA_LIFT_MODULE_TOO_OLD,
+				             "The Leia conversion runtime %u.%u.%u is older than the minimum %u.%u.%u",
 				             NEURD_GET_VERSION_MAJOR(nd->version), NEURD_GET_VERSION_MINOR(nd->version),
 				             NEURD_GET_VERSION_PATCH(nd->version), NEURD_GET_VERSION_MAJOR(g.k0.min_version),
 				             NEURD_GET_VERSION_MINOR(g.k0.min_version), NEURD_GET_VERSION_PATCH(g.k0.min_version));
@@ -1382,7 +1386,8 @@ activation_worker()
 				U_LOG_W("Leia lift: NeurD runtime too old/new for the D3D11 stream path (need 0.3.11+, "
 				        "major 0) — lift unavailable");
 				mark_file_failure(path, lib);
-				note_failure(LEIA_LIFT_MODULE_TOO_OLD, "NeurD %u.%u.%u lacks the D3D11 stream API (needs 0.3.11+)",
+				note_failure(LEIA_LIFT_MODULE_TOO_OLD,
+				             "The Leia conversion runtime %u.%u.%u lacks the D3D11 stream API (needs 0.3.11+)",
 				             NEURD_GET_VERSION_MAJOR(nd->version), NEURD_GET_VERSION_MINOR(nd->version),
 				             NEURD_GET_VERSION_PATCH(nd->version));
 				g.state.store(G_FAILED);
@@ -1439,9 +1444,9 @@ activation_worker()
 		if (st != NEURD_SUCCESS) {
 			U_LOG_W("Leia lift: NeurD init failed: %s — lift unavailable", status_str(st));
 			if (st == NEURD_INVALID_LICENSE) {
-				note_failure(LEIA_LIFT_MODULE_UNLICENSED, "NeurD licence refused (INVALID_LICENSE)");
+				note_failure(LEIA_LIFT_MODULE_UNLICENSED, "Leia conversion runtime licence refused (INVALID_LICENSE)");
 			} else {
-				note_failure(LEIA_LIFT_MODULE_LOAD_FAILED, "NeurD init failed: %s", status_str(st));
+				note_failure(LEIA_LIFT_MODULE_LOAD_FAILED, "Leia conversion runtime init failed: %s", status_str(st));
 			}
 			g.state.store(G_FAILED);
 			g.worker_running.store(false);
@@ -1457,7 +1462,7 @@ activation_worker()
 
 		std::lock_guard<std::mutex> lock(g.mtx);
 		g.backend = be;
-		snprintf(g.backend_name, sizeof(g.backend_name), "neurd-%s", backend_str(be));
+		snprintf(g.backend_name, sizeof(g.backend_name), "leia-%s", backend_str(be));
 		const struct knobs &k0 = g.k0;
 		uint64_t interactive_min = NEURD_convert_stream_dx_interactive_INTRODUCED_IN;
 		if (k0.interactive_min != 0) {
@@ -1505,7 +1510,8 @@ activation_worker()
 #endif
 		next = setup_nd_device_locked() ? (uint32_t)G_READY : (uint32_t)G_FAILED;
 		if (next == G_FAILED) {
-			note_failure(LEIA_LIFT_MODULE_LOAD_FAILED, "NeurD's D3D11 device could not be set up");
+			note_failure(LEIA_LIFT_MODULE_LOAD_FAILED,
+			             "The Leia conversion runtime's D3D11 device could not be set up");
 		}
 		if (next == G_READY) {
 			U_LOG_W(
@@ -2359,7 +2365,7 @@ fill_module_info(uint32_t s, struct leia_lift_neurd_caps *out)
 	case G_UNPROBED:
 	case G_LOADING:
 		out->module_status = LEIA_LIFT_MODULE_ACTIVATING;
-		snprintf(out->module_detail, sizeof(out->module_detail), "loading NeurD");
+		snprintf(out->module_detail, sizeof(out->module_detail), "loading the Leia conversion runtime");
 		break;
 	case G_RETRY_WAIT:
 		out->module_status = LEIA_LIFT_MODULE_ACTIVATING;
@@ -2368,12 +2374,12 @@ fill_module_info(uint32_t s, struct leia_lift_neurd_caps *out)
 		break;
 	case G_ABSENT:
 		out->module_status = LEIA_LIFT_MODULE_ABSENT;
-		snprintf(out->module_detail, sizeof(out->module_detail), "NeurD is not installed (NeurD.dll not found)");
+		snprintf(out->module_detail, sizeof(out->module_detail), "The Leia conversion runtime is not installed.");
 		break;
 	default: // G_FAILED
 		out->module_status = g.fail_kind != LEIA_LIFT_MODULE_UNKNOWN ? g.fail_kind : LEIA_LIFT_MODULE_LOAD_FAILED;
 		snprintf(out->module_detail, sizeof(out->module_detail), "%s",
-		         g.fail_detail[0] != '\0' ? g.fail_detail : "NeurD failed to load");
+		         g.fail_detail[0] != '\0' ? g.fail_detail : "The Leia conversion runtime failed to load");
 		break;
 	}
 }
@@ -2429,7 +2435,7 @@ leia_lift_neurd_get_caps(struct leia_lift_neurd *l, struct leia_lift_neurd_caps 
 			                                                 : kPriorLatencyOtherNs;
 		}
 	} else {
-		snprintf(out->backend, sizeof(out->backend), "neurd-%s",
+		snprintf(out->backend, sizeof(out->backend), "leia-%s",
 		         l->k.backend == BACKEND_AUTO ? "auto" : backend_str((enum NeurD_backend)l->k.backend));
 		if (lat == 0) {
 			lat = kPriorLatencyDirectMlNs;
@@ -3269,7 +3275,7 @@ leia_lift_neurd_get_status(struct leia_lift_neurd *l, struct leia_lift_neurd_sta
 		case G_UNPROBED:
 		case G_LOADING:
 			out->module_status = LEIA_LIFT_MODULE_ACTIVATING;
-			snprintf(out->detail, sizeof(out->detail), "loading NeurD");
+			snprintf(out->detail, sizeof(out->detail), "loading the Leia conversion runtime");
 			break;
 		case G_RETRY_WAIT:
 			out->module_status = LEIA_LIFT_MODULE_ACTIVATING;
@@ -3278,13 +3284,13 @@ leia_lift_neurd_get_status(struct leia_lift_neurd *l, struct leia_lift_neurd_sta
 			break;
 		case G_ABSENT:
 			out->module_status = LEIA_LIFT_MODULE_ABSENT;
-			snprintf(out->detail, sizeof(out->detail), "NeurD is not installed (NeurD.dll not found)");
+			snprintf(out->detail, sizeof(out->detail), "The Leia conversion runtime is not installed.");
 			break;
 		default: // G_FAILED
 			out->module_status =
 			    g.fail_kind != LEIA_LIFT_MODULE_UNKNOWN ? g.fail_kind : LEIA_LIFT_MODULE_LOAD_FAILED;
 			snprintf(out->detail, sizeof(out->detail), "%s",
-			         g.fail_detail[0] != '\0' ? g.fail_detail : "NeurD failed to load");
+			         g.fail_detail[0] != '\0' ? g.fail_detail : "The Leia conversion runtime failed to load");
 			break;
 		}
 	}
