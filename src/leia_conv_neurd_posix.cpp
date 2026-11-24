@@ -720,7 +720,7 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 		const char *where = "?";
 		const std::string path = neurd_resolve(&where);
 		if (path.empty()) {
-			set_failed(LEIA_LIFT_MODULE_ABSENT, true, "NeurD is not installed (libNeurD.so not found)");
+			set_failed(LEIA_LIFT_MODULE_ABSENT, true, "The Leia conversion runtime is not installed.");
 			U_LOG_W("Leia conversion: libNeurD.so not found (NeurDPath / %s / NEURD_PATH / LD_LIBRARY_PATH / "
 			        "~/.local/share/%s)",
 			        kMachineRoot, kUserSubdir);
@@ -730,8 +730,9 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 		char full[48] = {};
 		if (read_install_version(path, &fma, &fmi, &fpa, full, sizeof(full)) &&
 		    NEURD_MAKE_VERSION(fma, fmi, fpa) < g.k.min_version) {
-			set_failed(LEIA_LIFT_MODULE_TOO_OLD, true, "NeurD %u.%u.%u is older than the minimum %u.%u.%u", fma,
-			           fmi, fpa, (unsigned)NEURD_GET_VERSION_MAJOR(g.k.min_version),
+			set_failed(LEIA_LIFT_MODULE_TOO_OLD, true,
+			           "The Leia conversion runtime %u.%u.%u is older than the minimum %u.%u.%u", fma, fmi, fpa,
+			           (unsigned)NEURD_GET_VERSION_MAJOR(g.k.min_version),
 			           (unsigned)NEURD_GET_VERSION_MINOR(g.k.min_version),
 			           (unsigned)NEURD_GET_VERSION_PATCH(g.k.min_version));
 			U_LOG_W("Leia conversion: %s", g.detail);
@@ -740,7 +741,7 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 		void *lib = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
 		if (lib == nullptr) {
 			const char *e = dlerror();
-			set_failed(LEIA_LIFT_MODULE_LOAD_FAILED, true, "libNeurD.so found but failed to load");
+			set_failed(LEIA_LIFT_MODULE_LOAD_FAILED, true, "The Leia conversion runtime was found but failed to load");
 			U_LOG_W("Leia conversion: libNeurD.so at %s (%s) failed to load: %s", path.c_str(), where,
 			        e != nullptr ? e : "?");
 			return g.module_status;
@@ -750,7 +751,7 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 		struct NeurD const *nd = load != nullptr ? load(&req) : nullptr;
 		g.lib = lib; // never dlclose'd from here on: NeurD may have spun threads
 		if (nd == nullptr) {
-			set_failed(LEIA_LIFT_MODULE_LOAD_FAILED, false, "libNeurD.so has no usable NeurD_load");
+			set_failed(LEIA_LIFT_MODULE_LOAD_FAILED, false, "The Leia conversion runtime has no usable entry point");
 			U_LOG_W("Leia conversion: %s (%s)", g.detail, path.c_str());
 			return g.module_status;
 		}
@@ -771,7 +772,8 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 			        g.version);
 		}
 		if (nd->version < g.k.min_version) {
-			set_failed(LEIA_LIFT_MODULE_TOO_OLD, false, "NeurD %s is older than the minimum %u.%u.%u", g.version,
+			set_failed(LEIA_LIFT_MODULE_TOO_OLD, false,
+			           "The Leia conversion runtime %s is older than the minimum %u.%u.%u", g.version,
 			           (unsigned)NEURD_GET_VERSION_MAJOR(g.k.min_version),
 			           (unsigned)NEURD_GET_VERSION_MINOR(g.k.min_version),
 			           (unsigned)NEURD_GET_VERSION_PATCH(g.k.min_version));
@@ -781,7 +783,8 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 		if (NEURD_GET_VERSION_MAJOR(nd->version) != 0 || !LEIA_NEURD_HAS(nd, create_stream) ||
 		    !LEIA_NEURD_HAS(nd, convert_stream_cpu) || !LEIA_NEURD_HAS(nd, set_prop_1i) ||
 		    !LEIA_NEURD_HAS(nd, set_prop_1f)) {
-			set_failed(LEIA_LIFT_MODULE_TOO_OLD, false, "NeurD %s lacks the CPU stream API", g.version);
+			set_failed(LEIA_LIFT_MODULE_TOO_OLD, false, "The Leia conversion runtime %s lacks the CPU stream API",
+			           g.version);
 			U_LOG_W("Leia conversion: %s", g.detail);
 			return g.module_status;
 		}
@@ -824,16 +827,16 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 	if (st == NEURD_LICENSE_NETWORK_ERROR || st == NEURD_NETWORK_ERROR) {
 		g.network_retry = true;
 		g.next_retry_ms = now_ms() + kActivationRetryMs;
-		snprintf(g.detail, sizeof(g.detail), "NeurD licence activation needs the network");
+		snprintf(g.detail, sizeof(g.detail), "Leia conversion runtime licence activation needs the network");
 		U_LOG_W("Leia conversion: NeurD licence activation needs the network (%s) — retry in %llus",
 		        status_str(st), (unsigned long long)(kActivationRetryMs / 1000));
 		return g.module_status;
 	}
 	if (st != NEURD_SUCCESS) {
 		if (st == NEURD_INVALID_LICENSE) {
-			set_failed(LEIA_LIFT_MODULE_UNLICENSED, false, "NeurD licence refused (INVALID_LICENSE)");
+			set_failed(LEIA_LIFT_MODULE_UNLICENSED, false, "Leia conversion runtime licence refused (INVALID_LICENSE)");
 		} else {
-			set_failed(LEIA_LIFT_MODULE_LOAD_FAILED, false, "NeurD init failed: %s", status_str(st));
+			set_failed(LEIA_LIFT_MODULE_LOAD_FAILED, false, "Leia conversion runtime init failed: %s", status_str(st));
 		}
 		U_LOG_W("Leia conversion: %s", g.detail);
 		return g.module_status;
@@ -842,7 +845,7 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 	if (LEIA_NEURD_HAS(nd, get_backend)) {
 		NeurD_get_backend(nd, &be);
 	}
-	snprintf(g.backend, sizeof(g.backend), "neurd-%s", backend_str(be));
+	snprintf(g.backend, sizeof(g.backend), "leia-%s", backend_str(be));
 	g.stream_props = nd->version >= kStreamPropsVersion && LEIA_NEURD_HAS(nd, set_stream_prop_1f) &&
 	                 LEIA_NEURD_HAS(nd, set_stream_prop_1i);
 #ifdef DXR_LEIA_NEURD_HAS_CPU_EX
@@ -856,7 +859,8 @@ leia_lift_neurd_activate(struct leia_lift_neurd *lift)
 	g.network_retry = false;
 	g.recheckable = false;
 	g.p_valid = false;
-	snprintf(g.detail, sizeof(g.detail), "NeurD %s ready (%s, CPU transport)", g.version, g.backend);
+	snprintf(g.detail, sizeof(g.detail), "Leia conversion runtime %s ready (%s, CPU transport)", g.version,
+	         g.backend);
 	U_LOG_W("Leia conversion: NeurD READY in %llu ms — backend %s, per-stream props %s, depth_gain=%.2f "
 	        "dilate=%d conv_gain=%.2f scale=%d view_gain=%.2f y_gain=%.2f offaxis=%d relief_m=%.3f [CPU transport: %s]",
 	        (unsigned long long)(now_ms() - t0), g.backend, g.stream_props ? "yes" : "no (NeurD < 0.4.9)",

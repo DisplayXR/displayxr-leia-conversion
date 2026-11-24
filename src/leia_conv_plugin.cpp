@@ -402,8 +402,8 @@ fill_cap(const struct snapshot &s, uint32_t index, struct xrt_conv_capability *c
 {
 	static const uint32_t k_tasks[LEIA_CONV_CAP_COUNT] = {XRT_CONV_TASK_DEPTH_MONO, XRT_CONV_TASK_DEPTH_VIDEO,
 	                                                      XRT_CONV_TASK_VIEWS_MONO};
-	static const char *const k_names[LEIA_CONV_CAP_COUNT] = {"Leia NeurD depth (image)", "Leia NeurD depth (video)",
-	                                                         "Leia NeurD stereo views"};
+	static const char *const k_names[LEIA_CONV_CAP_COUNT] = {"Leia depth (image)", "Leia depth (video)",
+	                                                         "Leia stereo views"};
 	c->cap_id = kCapIds[index];
 	c->task = k_tasks[c->cap_id - 1u];
 	c->lanes = XRT_CONV_LANE_STREAM;
@@ -477,7 +477,7 @@ fill_cap(const struct snapshot &s, uint32_t index, struct xrt_conv_capability *c
 	if (s.activated && s.status.backend[0] != '\0') {
 		copy_str(c->backend, sizeof(c->backend), s.status.backend);
 	} else {
-		copy_str(c->backend, sizeof(c->backend), "neurd");
+		copy_str(c->backend, sizeof(c->backend), "leia");
 	}
 	copy_str(c->display_name, sizeof(c->display_name), k_names[c->cap_id - 1u]);
 	c->device_luid = s.device_luid;
@@ -620,14 +620,15 @@ lc_get_provider_status(struct xrt_conv_provider_status *out)
 		copy_str(full.hint, sizeof(full.hint), "2D->3D conversion turned off by the provider's Enable setting");
 	} else if (!p.found) {
 		full.state = 2u;
-		copy_str(full.hint, sizeof(full.hint), "the NeurD conversion module is not installed");
+		copy_str(full.hint, sizeof(full.hint), "the Leia conversion runtime is not installed");
 	} else if (p.too_old) {
 		full.state = 5u;
-		(void)snprintf(full.hint, sizeof(full.hint), "NeurD %u.%u.%u is older than the minimum %u.%u.%u",
+		(void)snprintf(full.hint, sizeof(full.hint),
+		               "the Leia conversion runtime %u.%u.%u is older than the minimum %u.%u.%u",
 		               p.ver_major, p.ver_minor, p.ver_patch, p.min_major, p.min_minor, p.min_patch);
 	} else {
 		full.state = 1u;
-		copy_str(full.hint, sizeof(full.hint), "the NeurD conversion module is installed");
+		copy_str(full.hint, sizeof(full.hint), "the Leia conversion runtime is installed");
 	}
 	write_within(out, full);
 	return true;
@@ -714,18 +715,19 @@ lc_get_state(struct xrt_conversion_plugin_instance *inst, uint32_t cap_id, struc
 		if (s.device_lost) {
 			copy_str(full.detail, sizeof(full.detail), "the provider's D3D11 device was lost; re-warming");
 		} else if (s.warming) {
-			copy_str(full.detail, sizeof(full.detail), "loading NeurD (licence check, model load)");
+			copy_str(full.detail, sizeof(full.detail), "loading the Leia conversion runtime");
 		} else if (s.activated) {
 			copy_str(full.detail, sizeof(full.detail), s.status.detail);
 		} else if (!p.enabled) {
 			copy_str(full.detail, sizeof(full.detail), "turned off (Enable=0)");
 		} else if (!p.found) {
-			copy_str(full.detail, sizeof(full.detail), "NeurD is not installed");
+			copy_str(full.detail, sizeof(full.detail), "The Leia conversion runtime is not installed.");
 		} else if (p.too_old) {
-			(void)snprintf(full.detail, sizeof(full.detail), "NeurD %u.%u.%u is older than the minimum %u.%u.%u",
+			(void)snprintf(full.detail, sizeof(full.detail),
+			               "The Leia conversion runtime %u.%u.%u is older than the minimum %u.%u.%u",
 			               p.ver_major, p.ver_minor, p.ver_patch, p.min_major, p.min_minor, p.min_patch);
 		} else {
-			copy_str(full.detail, sizeof(full.detail), "NeurD installed, not loaded yet");
+			copy_str(full.detail, sizeof(full.detail), "The Leia conversion runtime is installed, not loaded yet");
 		}
 	}
 	write_within(out, full);
@@ -1399,19 +1401,19 @@ const struct xrt_component_setting_desc g_settings[] = {
     {"Enable", XRT_COMPONENT_SETTING_TYPE_BOOL, "1", "0 turns the provider off (DISABLED)"},
 #ifdef LEIA_CONV_CPU_TRANSPORT
     {"NeurDPath", XRT_COMPONENT_SETTING_TYPE_STRING, "",
-     "libNeurD.so or its directory; when set it is the only place looked at"},
+     "the Leia conversion runtime's library or its directory; when set it is the only place looked at"},
     {"Backend", XRT_COMPONENT_SETTING_TYPE_ENUM, "auto", "auto | openvino | cuda"},
-    {"Scale", XRT_COMPONENT_SETTING_TYPE_ENUM, "1080p", "none | 720p | 1080p | 1440p (NeurD input autoscaling)"},
+    {"Scale", XRT_COMPONENT_SETTING_TYPE_ENUM, "1080p", "none | 720p | 1080p | 1440p (input autoscaling)"},
 #else
     {"NeurDPath", XRT_COMPONENT_SETTING_TYPE_STRING, "",
-     "absolute path of NeurD.dll; when set it is the only place looked at"},
+     "absolute path of the Leia conversion runtime's library; when set it is the only place looked at"},
     {"Backend", XRT_COMPONENT_SETTING_TYPE_ENUM, "directml", "auto | directml | cuda | openvino"},
-    {"Scale", XRT_COMPONENT_SETTING_TYPE_ENUM, "720", "none | 720 | 1080 | 1440 (NeurD input autoscaling)"},
+    {"Scale", XRT_COMPONENT_SETTING_TYPE_ENUM, "720", "none | 720 | 1080 | 1440 (input autoscaling)"},
     {"InteractiveMin", XRT_COMPONENT_SETTING_TYPE_STRING, "",
-     "x.y.z: oldest NeurD whose interactive convert is used (clamped up to 0.4.4); unset = the version the NeurD "
-     "header says introduced it"},
+     "x.y.z: oldest Leia conversion runtime whose interactive convert is used (clamped up to 0.4.4); unset = the "
+     "version its header says introduced it"},
 #endif
-    {"MinVersion", XRT_COMPONENT_SETTING_TYPE_STRING, "0.4.6", "x.y.z: a NeurD older than this is refused"},
+    {"MinVersion", XRT_COMPONENT_SETTING_TYPE_STRING, "0.4.6", "x.y.z: a Leia conversion runtime older than this is refused"},
     {"VideoModel", XRT_COMPONENT_SETTING_TYPE_ENUM, "fast", "fast | metric (the video streams' depth model)"},
     {"ViewGain", XRT_COMPONENT_SETTING_TYPE_FLOAT, "1.0", "0..10: horizontal viewpoint gain"},
     {"YGain", XRT_COMPONENT_SETTING_TYPE_FLOAT, "1.0", "0..10: vertical viewpoint gain"},
@@ -1439,7 +1441,9 @@ struct xrt_conversion_plugin_iface g_iface = {
     (uint32_t)sizeof(struct xrt_conversion_plugin_iface),
     0,
     LEIA_CONV_ID,
-    "Leia conversion (NeurD)",
+    // The name every user-facing list shows (`displayxr-cli conv list`, the
+    // Dashboard). Plain: it does not name the conversion technology.
+    "Leia conversion",
     "Leia Inc.",
     DXR_PLUGIN_GIT_DESC,
     lc_get_provider_status,

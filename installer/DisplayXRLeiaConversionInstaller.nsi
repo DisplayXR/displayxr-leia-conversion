@@ -396,9 +396,9 @@ Section "Leia Conversion Provider"
 	ReadRegStr $2 HKLM "SOFTWARE\LeiaInc\NeurD" ""
 	ReadRegStr $3 HKLM "SOFTWARE\LeiaInc\NeurD" "Version"
 	${If} $2 == ""
-		DetailPrint "NeurD runtime not registered on this box: the provider reports ABSENT until NeurD is installed (its own installer; not part of this package)."
+		DetailPrint "The Leia conversion runtime is not registered on this PC: the provider reports ABSENT until it is installed (its own installer; not part of this package)."
 	${Else}
-		DetailPrint "NeurD runtime $3 registered at $2"
+		DetailPrint "Leia conversion runtime $3 registered at $2"
 	${EndIf}
 
 	; --- Whose row is it now? ---
@@ -449,7 +449,7 @@ Section "Leia Conversion Provider"
 	; -----------------------------------------------------------------
 	DeleteRegValue HKLM "${CONV_KEY}" "Version"
 	WriteRegStr   HKLM "${CONV_KEY}" "Binary"          "$INSTDIR\${CONV_DLL}"
-	WriteRegStr   HKLM "${CONV_KEY}" "DisplayName"     "Leia conversion (NeurD)"
+	WriteRegStr   HKLM "${CONV_KEY}" "DisplayName"     "Leia conversion"
 	WriteRegStr   HKLM "${CONV_KEY}" "Vendor"          "Leia Inc."
 	WriteRegStr   HKLM "${CONV_KEY}" "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
 	WriteRegStr   HKLM "${CONV_KEY}" "Supersedes"      "dp-lift"

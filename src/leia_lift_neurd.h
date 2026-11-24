@@ -73,7 +73,7 @@ struct leia_lift_neurd_caps
 	uint32_t depth_semantics; //!< 0 = relative (NeurD: min-max normalised disparity).
 	uint32_t state;           //!< LEIA_LIFT_STATE_*.
 	uint64_t typical_latency_ns;
-	char backend[32]; //!< e.g. "neurd-directml"; "" when unavailable.
+	char backend[32]; //!< e.g. "leia-directml"; "" when unavailable.
 	uint32_t module_status;  //!< LEIA_LIFT_MODULE_*.
 	char module_version[48]; //!< NeurD's installed version string; "" = none / unknown.
 	char module_detail[96];  //!< One line for a human; display only.
@@ -316,7 +316,7 @@ struct leia_lift_neurd_status
 	char version[48];  //!< the loaded NeurD's version, "" when none
 	char detail[96];   //!< one line for a human
 	char licence[64];  //!< NeurD's own licence line (empty until it printed one)
-	char backend[32];  //!< "neurd-<backend>" once READY, else ""
+	char backend[32];  //!< "leia-<backend>" once READY, else ""
 	bool float_depth;  //!< READY: SBS streams can return the depth of the same inference
 	bool metric_depth; //!< ...and it is metric (VideoModel=metric)
 	bool offaxis;      //!< READY: the metric off-axis camera is available
