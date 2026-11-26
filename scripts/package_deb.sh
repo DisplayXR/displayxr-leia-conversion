@@ -21,7 +21,10 @@
 #   /usr/lib/displayxr/plugins/DisplayXR-LeiaConversion.so
 #   /usr/lib/displayxr/plugins/050-leia-conversion-conversion-provider.json
 #
-# No maintainer scripts: the package only drops files the runtime discovers.
+# Maintainer scripts do one thing: ask the runtime's helper to try-restart a
+# running displayxr.service, which keeps the previous provider mapped until it
+# restarts (runtime #2812). Otherwise the package only drops files the runtime
+# discovers.
 #
 # --- NeurD is an external prerequisite, not a dependency ----------------------
 # The provider loads NO NeurD symbol at link time: it finds libNeurD.so at run
@@ -224,6 +227,30 @@ Description: DisplayXR Leia conversion provider (2D to 3D)
  Replaces the copy of the provider that displayxr-leia-sr shipped before
  version $LEIA_SR_SPLIT_VERSION.
 EOF_CONTROL
+
+# A running displayxr.service has the previous provider mapped: it must restart
+# to load this one (or to drop it on removal). The runtime ships the helper
+# (runtime #2812): it try-restarts only a service that is running, in every
+# user manager, never starts one, and always exits 0. A runtime too old to
+# ship it is left alone.
+write_restart_script() {
+    cat > "$1" <<'EOS'
+#!/bin/sh
+set -e
+case "$1" in
+    __WHEN__)
+        if [ -x /usr/lib/displayxr/bin/displayxr-restart-service ]; then
+            /usr/lib/displayxr/bin/displayxr-restart-service || true
+        fi
+        ;;
+esac
+exit 0
+EOS
+    sed -i.bak "s/__WHEN__/$2/" "$1" && rm -f "$1.bak"
+    chmod 0755 "$1"
+}
+write_restart_script "$STAGE/DEBIAN/postinst" "configure"
+write_restart_script "$STAGE/DEBIAN/postrm" "remove|purge"
 
 mkdir -p "$DIST_DIR"
 DEB="$DIST_DIR/${PKG}_${VERSION}_${ARCH}.deb"
