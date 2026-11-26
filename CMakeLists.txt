@@ -97,7 +97,7 @@ endif()
 # XRT_CONVERSION_PLUGIN_HAS_DESCRIBE_SETTINGS, v2.45.0; the capability bits it
 # defines itself when the header lacks them). Move the pin when the code needs
 # a newer macro, never to chase a release.
-set(DXR_RUNTIME_GIT_TAG "v2.66.8" CACHE STRING
+set(DXR_RUNTIME_GIT_TAG "v2.70.11" CACHE STRING
     "Runtime git ref to fetch. Must equal the workflows' RUNTIME_REF (rule-5 CI check).")
 
 # The oldest runtime that can host the provider at all: the first with the
